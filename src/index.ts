@@ -37,7 +37,7 @@ app.use(cors())
 app.get('/notes.json', async (c) => {
 	const query = `SELECT * FROM notes`
 	const { results } = await c.env.DATABASE.prepare(query).all()
-	return c.json({ data: results });
+	return c.json(results);
 })
 
 app.get('/notes', async (c) => {
@@ -160,10 +160,11 @@ export class RAGWorkflow extends WorkflowEntrypoint<Env, Params> {
 		for (const index in texts) {
 			const text = texts[index]
 			const record = await step.do(`create database record: ${index}/${texts.length}`, async () => {
-				const query = "INSERT INTO notes (text) VALUES (?) RETURNING *"
+				const id = crypto.randomUUID()
+				const query = "INSERT INTO notes (id, text) VALUES (?, ?) RETURNING *"
 
 				const { results } = await env.DATABASE.prepare(query)
-					.bind(text)
+					.bind(id, text)
 					.run<Note>()
 
 				const record = results[0]
