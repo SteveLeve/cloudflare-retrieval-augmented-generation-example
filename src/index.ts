@@ -37,7 +37,7 @@ app.use(cors())
 app.get('/notes.json', async (c) => {
 	const query = `SELECT * FROM notes`
 	const { results } = await c.env.DATABASE.prepare(query).all()
-	return c.json(results);
+	return c.json({ data: results });
 })
 
 app.get('/notes', async (c) => {
