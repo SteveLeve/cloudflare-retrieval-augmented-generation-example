@@ -98,7 +98,7 @@ app.get('/', async (c) => {
 			apiKey: c.env.ANTHROPIC_API_KEY
 		})
 
-		const model = "claude-3-5-sonnet-latest"
+		const model = "claude-haiku-4-5-20251001"
 		modelUsed = model
 
 		const message = await anthropic.messages.create({
