@@ -1,0 +1,51 @@
+{
+  // Worker configuration
+  "name": "rag",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-10",
+
+  // AI binding for Workers AI
+  "ai": {
+    "binding": "AI"
+  },
+
+  // Environment variables
+  "vars": {
+    "ENABLE_TEXT_SPLITTING": true
+  },
+
+  // Rules for handling static assets
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.html"],
+      "fallthrough": true
+    }
+  ],
+
+  // D1 Database binding
+  "d1_databases": [
+    {
+      "binding": "DATABASE",
+      "database_name": "ai-example",
+      "database_id": "2a210384-148b-4c31-bbad-c2873f649f9c"
+    }
+  ],
+
+  // Vectorize Index binding
+  "vectorize": [
+    {
+      "binding": "VECTOR_INDEX",
+      "index_name": "tutorial-index-768"
+    }
+  ],
+
+  // Workflows binding
+  "workflows": [
+    {
+      "name": "rag",
+      "binding": "RAG_WORKFLOW",
+      "class_name": "RAGWorkflow"
+    }
+  ]
+}

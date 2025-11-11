@@ -7,13 +7,13 @@
     "start": "wrangler dev"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20241022.0",
-    "typescript": "^5.6.3",
-    "wrangler": "^3.22.4"
+    "@cloudflare/workers-types": "^4.20251111.0",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.46.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
-    "@langchain/textsplitters": "^0.1.0",
-    "hono": "^4.5.6"
+    "@anthropic-ai/sdk": "^0.68.0",
+    "@langchain/textsplitters": "^1.0.0",
+    "hono": "^4.10.4"
   }
 }

@@ -32,17 +32,24 @@ $ wrangler d1 migrations apply DATABASE
 $ wrangler d1 migrations apply DATABASE --remote
 ```
 
-Add the configuration to `wrangler.toml`, replacing my values with your own:
+Add the configuration to `wrangler.jsonc`, replacing my values with your own:
 
-```toml
-[[d1_databases]]
-binding = "DATABASE"
-database_name = "<your database name>"
-database_id = "<your database id>"
-
-[[vectorize]]
-binding = "VECTOR_INDEX"
-index_name = "<your vector index name>"
+```jsonc
+{
+  "d1_databases": [
+    {
+      "binding": "DATABASE",
+      "database_name": "<your database name>",
+      "database_id": "<your database id>"
+    }
+  ],
+  "vectorize": [
+    {
+      "binding": "VECTOR_INDEX",
+      "index_name": "<your vector index name>"
+    }
+  ]
+}
 ```
 
 Deploy the application:
@@ -73,9 +80,12 @@ Once you've set this secret, all text generation will be done by Claude.
 
 ### Recursive text splitting
 
-By default, this app uses Langchain's `RecursiveCharacterTextSplitter` to split text into chunks. This is a recommended approach for taking large pieces of text and formatting them for RAG use-cases. You can turn this off by setting the `ENABLE_TEXT_SPLITTER` variable in `wrangler.toml` to `false`:
+By default, this app uses Langchain's `RecursiveCharacterTextSplitter` to split text into chunks. This is a recommended approach for taking large pieces of text and formatting them for RAG use-cases. You can turn this off by setting the `ENABLE_TEXT_SPLITTER` variable in `wrangler.jsonc` to `false`:
 
-```toml
-[vars]
-ENABLE_TEXT_SPLITTER = "false"
+```jsonc
+{
+  "vars": {
+    "ENABLE_TEXT_SPLITTING": false
+  }
+}
 ```

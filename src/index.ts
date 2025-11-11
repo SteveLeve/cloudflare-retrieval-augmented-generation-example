@@ -71,7 +71,7 @@ app.get('/write', async (c) => {
 app.get('/', async (c) => {
 	const question = c.req.query('text') || "What is the square root of 9?"
 
-	const embeddings = await c.env.AI.run('@cf/baai/bge-base-en-v1.5', { text: question })
+	const embeddings = await c.env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [question] }) as { data: number[][] }
 	const vectors = embeddings.data[0]
 
 	const vectorQuery = await c.env.VECTOR_INDEX.query(vectors, { topK: 3 });
@@ -114,7 +114,7 @@ app.get('/', async (c) => {
 			response: (message.content as TextBlock[]).map(content => content.text).join("\n")
 		}
 	} else {
-		const model = "@cf/meta/llama-3.1-8b-instruct"
+		const model = "@cf/meta/llama-3.1-8b-instruct" as any
 		modelUsed = model
 
 		response = await c.env.AI.run(
@@ -124,7 +124,7 @@ app.get('/', async (c) => {
 					...(notes.length ? [{ role: 'system', content: contextMessage }] : []),
 					{ role: 'system', content: systemPrompt },
 					{ role: 'user', content: question }
-				] as RoleScopedChatInput[]
+				]
 			}
 		) as AiTextGenerationOutput
 	}
@@ -172,7 +172,7 @@ export class RAGWorkflow extends WorkflowEntrypoint<Env, Params> {
 			})
 
 			const embedding = await step.do(`generate embedding: ${index}/${texts.length}`, async () => {
-				const embeddings = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: text })
+				const embeddings = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [text] }) as { data: number[][] }
 				const values = embeddings.data[0]
 				if (!values) throw new Error("Failed to generate vector embedding")
 				return values
