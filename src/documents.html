@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>Documents | Cloudflare RAG Example</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
+  <style>
+    .document {
+      border: 1px solid #ddd;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      border-radius: 4px;
+    }
+    .document h3 {
+      margin-top: 0;
+    }
+    .metadata {
+      font-size: 0.9em;
+      color: #666;
+      margin: 0.5rem 0;
+    }
+    .metadata span {
+      margin-right: 1rem;
+    }
+    .chunk-info {
+      font-size: 0.85em;
+      color: #888;
+    }
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #666;
+    }
+    .error {
+      color: red;
+      padding: 1rem;
+      border: 1px solid red;
+      border-radius: 4px;
+      background: #fff0f0;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Documents</h1>
+
+  <p>
+    <small>
+      <a href="/ui">Query</a> ・ <a href="/notes">Notes</a> ・ <a href="/documents">Documents</a> ・ <a href="/write">Add document</a>
+    </small>
+  </p>
+
+  <div id="documentList">
+    <div class="loading">Loading documents...</div>
+  </div>
+
+  <script>
+    async function loadDocuments() {
+      const container = document.getElementById('documentList');
+      try {
+        const response = await fetch('/documents');
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const documents = data.documents || [];
+
+        if (documents.length === 0) {
+          container.innerHTML = '<p>No documents found. <a href="/write">Add a document</a> to get started.</p>';
+          return;
+        }
+
+        container.innerHTML = documents.map(doc => {
+          const uploadDate = new Date(doc.uploaded_at).toLocaleString();
+          let metadata = {};
+          try {
+            metadata = doc.metadata ? JSON.parse(doc.metadata) : {};
+          } catch (e) {
+            console.error('Failed to parse metadata:', e);
+          }
+
+          return `
+            <div class="document">
+              <h3>${escapeHtml(doc.title)}</h3>
+              <div class="metadata">
+                <span><strong>Uploaded:</strong> ${uploadDate}</span>
+                <span><strong>Type:</strong> ${doc.content_type || 'text/plain'}</span>
+                <span><strong>Chunks:</strong> ${doc.chunk_count}</span>
+              </div>
+              ${metadata.author ? `<div class="metadata"><strong>Author:</strong> ${escapeHtml(metadata.author)}</div>` : ''}
+              ${metadata.description ? `<div class="metadata"><strong>Description:</strong> ${escapeHtml(metadata.description)}</div>` : ''}
+              ${metadata.source ? `<div class="metadata"><strong>Source:</strong> ${escapeHtml(metadata.source)}</div>` : ''}
+              ${metadata.tags ? `<div class="metadata"><strong>Tags:</strong> ${metadata.tags.map(t => escapeHtml(t)).join(', ')}</div>` : ''}
+              <div class="chunk-info">
+                <small>Document ID: <code>${doc.id}</code></small>
+              </div>
+              <button onclick="viewDocument('${doc.id}')">View Full Document</button>
+            </div>
+          `;
+        }).join('');
+      } catch (error) {
+        container.innerHTML = `<div class="error">Failed to load documents: ${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    async function viewDocument(id) {
+      try {
+        const response = await fetch(`/documents/${id}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const doc = await response.json();
+
+        // Create a modal or new page to view the full document
+        const contentWindow = window.open('', '_blank');
+        contentWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <title>${escapeHtml(doc.title)}</title>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
+            <style>
+              .content { white-space: pre-wrap; font-family: monospace; }
+              .chunk { border-left: 3px solid #ddd; padding-left: 1rem; margin: 1rem 0; }
+            </style>
+          </head>
+          <body>
+            <h1>${escapeHtml(doc.title)}</h1>
+            <p><strong>Type:</strong> ${doc.contentType || 'text/plain'}</p>
+            <p><strong>Uploaded:</strong> ${new Date(doc.uploadedAt).toLocaleString()}</p>
+            <h2>Full Content</h2>
+            <div class="content">${escapeHtml(doc.content)}</div>
+            <h2>Chunks (${doc.chunks.length})</h2>
+            ${doc.chunks.map((chunk, i) => `
+              <div class="chunk">
+                <h3>Chunk ${chunk.chunk_index + 1}</h3>
+                <p>${escapeHtml(chunk.text)}</p>
+              </div>
+            `).join('')}
+          </body>
+          </html>
+        `);
+        contentWindow.document.close();
+      } catch (error) {
+        alert('Failed to load document: ' + error.message);
+      }
+    }
+
+    // Load documents on page load
+    loadDocuments();
+  </script>
+</body>
+
+</html>

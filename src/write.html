@@ -8,35 +8,114 @@
 </head>
 
 <body>
-  <h1>Write a new note</h1>
+  <h1>Add a new document</h1>
 
   <p>
     <small>
-      <a href="/ui">Query</a> ・ <a href="/notes">Notes</a> ・ <a href="/write">Add note</a>
+      <a href="/ui">Query</a> ・ <a href="/notes">Notes</a> ・ <a href="/documents">Documents</a> ・ <a href="/write">Add document</a>
     </small>
   </p>
 
   <form>
-    <textarea name="text" required="true" placeholder="Write a new note to add to the AI's knowledge base"></textarea>
-    <button type="submit">Submit</button>
+    <label for="title">Document Title *</label>
+    <input type="text" id="title" name="title" required placeholder="e.g., Product Documentation, Meeting Notes, etc.">
+
+    <label for="contentType">Content Type</label>
+    <select id="contentType" name="contentType">
+      <option value="text/plain">Plain Text</option>
+      <option value="text/markdown">Markdown</option>
+      <option value="text/html">HTML</option>
+      <option value="application/json">JSON</option>
+    </select>
+
+    <label for="text">Document Content *</label>
+    <textarea id="text" name="text" required rows="15" placeholder="Paste or write the document content here. It will be automatically split into chunks if text splitting is enabled."></textarea>
+
+    <details style="margin-bottom: 1rem;">
+      <summary>Optional Metadata</summary>
+      <label for="author">Author</label>
+      <input type="text" id="author" name="author" placeholder="Document author">
+
+      <label for="source">Source</label>
+      <input type="text" id="source" name="source" placeholder="e.g., documentation URL, file path">
+
+      <label for="tags">Tags (comma-separated)</label>
+      <input type="text" id="tags" name="tags" placeholder="e.g., product, engineering, documentation">
+
+      <label for="description">Description</label>
+      <textarea id="description" name="description" rows="2" placeholder="Brief description of the document"></textarea>
+    </details>
+
+    <button type="submit">Upload Document</button>
   </form>
+
+  <div id="status" style="margin-top: 1rem; display: none;">
+    <p id="statusMessage"></p>
+  </div>
 
   <script>
     const form = document.querySelector('form')
+    const statusDiv = document.getElementById('status')
+    const statusMessage = document.getElementById('statusMessage')
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault()
-      const text = form.querySelector('textarea').value
-      const response = await fetch('/notes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ text })
-      })
-      if (response.ok) {
-        window.location.href = '/ui'
-      } else {
-        alert('Failed to create note')
+
+      // Show loading state
+      statusDiv.style.display = 'block'
+      statusMessage.textContent = 'Uploading document...'
+      statusMessage.style.color = '#666'
+
+      const text = form.querySelector('#text').value
+      const title = form.querySelector('#title').value
+      const contentType = form.querySelector('#contentType').value
+
+      // Collect optional metadata
+      const metadata = {}
+      const author = form.querySelector('#author').value
+      const source = form.querySelector('#source').value
+      const tags = form.querySelector('#tags').value
+      const description = form.querySelector('#description').value
+
+      if (author) metadata.author = author
+      if (source) metadata.source = source
+      if (description) metadata.description = description
+      if (tags) metadata.tags = tags.split(',').map(t => t.trim()).filter(Boolean)
+
+      try {
+        const response = await fetch('/notes', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            text,
+            title,
+            contentType,
+            metadata: Object.keys(metadata).length > 0 ? metadata : undefined
+          })
+        })
+
+        if (response.ok) {
+          const result = await response.json()
+          statusMessage.textContent = `✓ Document uploaded successfully! Workflow ID: ${result.workflowId}`
+          statusMessage.style.color = 'green'
+
+          // Clear form
+          form.reset()
+
+          // Redirect after 2 seconds
+          setTimeout(() => {
+            window.location.href = '/ui'
+          }, 2000)
+        } else {
+          const error = await response.text()
+          statusMessage.textContent = `✗ Failed to upload document: ${error}`
+          statusMessage.style.color = 'red'
+        }
+      } catch (error) {
+        statusMessage.textContent = `✗ Error: ${error.message}`
+        statusMessage.style.color = 'red'
       }
     })
   </script>
