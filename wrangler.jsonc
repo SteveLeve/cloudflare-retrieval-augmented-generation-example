@@ -50,5 +50,13 @@
       "binding": "RAG_WORKFLOW",
       "class_name": "RAGWorkflow"
     }
+  ],
+
+  // KV namespace for storing full documents
+  "kv_namespaces": [
+    {
+      "binding": "DOCUMENTS",
+      "id": "placeholder_run_wrangler_kv_namespace_create_DOCUMENTS"
+    }
   ]
 }
