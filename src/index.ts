@@ -12,6 +12,8 @@ import notes from './notes.html'
 import ui from './ui.html'
 // @ts-expect-error
 import write from './write.html'
+// @ts-expect-error
+import chat from './chat.html'
 
 type Env = {
 	AI: Ai;
@@ -30,6 +32,26 @@ type Note = {
 type Params = {
 	text: string;
 };
+
+type Conversation = {
+	id: string;
+	created_at: number;
+}
+
+type Message = {
+	id: string;
+	conversation_id: string;
+	role: 'user' | 'assistant';
+	content: string;
+	sources: string | null;
+	created_at: number;
+}
+
+type ChatMessage = {
+	role: 'user' | 'assistant';
+	content: string;
+	sources?: Array<{ id: string; text: string }>;
+}
 
 const app = new Hono<{ Bindings: Env }>()
 app.use(cors())
@@ -66,6 +88,146 @@ app.get('/ui', async (c) => {
 
 app.get('/write', async (c) => {
 	return c.html(write);
+})
+
+// Chat UI
+app.get('/chat', async (c) => {
+	return c.html(chat);
+})
+
+// Create new conversation
+app.post('/chat/conversations', async (c) => {
+	const id = crypto.randomUUID();
+	const query = `INSERT INTO conversations (id) VALUES (?) RETURNING *`;
+	const { results } = await c.env.DATABASE.prepare(query).bind(id).run<Conversation>();
+	return c.json(results[0]);
+})
+
+// Get conversation history
+app.get('/chat/conversations/:id', async (c) => {
+	const { id } = c.req.param();
+	const query = `SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC`;
+	const { results } = await c.env.DATABASE.prepare(query).bind(id).all<Message>();
+
+	const messages: ChatMessage[] = results.map(msg => ({
+		role: msg.role,
+		content: msg.content,
+		sources: msg.sources ? JSON.parse(msg.sources) : undefined
+	}));
+
+	return c.json(messages);
+})
+
+// Send message and get response
+app.post('/chat/conversations/:id/messages', async (c) => {
+	const { id: conversationId } = c.req.param();
+	const { message } = await c.req.json<{ message: string }>();
+
+	if (!message) return c.text("Missing message", 400);
+
+	// Save user message
+	const userMessageId = crypto.randomUUID();
+	await c.env.DATABASE.prepare(
+		`INSERT INTO messages (id, conversation_id, role, content, sources) VALUES (?, ?, ?, ?, ?)`
+	).bind(userMessageId, conversationId, 'user', message, null).run();
+
+	// Get conversation history for context
+	const historyQuery = `SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC`;
+	const { results: history } = await c.env.DATABASE.prepare(historyQuery).bind(conversationId).all<Message>();
+
+	// Generate embeddings for the user's message
+	const embeddings = await c.env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [message] }) as { data: number[][] };
+	const vectors = embeddings.data[0];
+
+	// Query vector index for relevant notes
+	const vectorQuery = await c.env.VECTOR_INDEX.query(vectors, { topK: 3 });
+	const matchingIds = vectorQuery.matches.map(m => m.id).filter(Boolean);
+
+	let retrievedNotes: Note[] = [];
+	if (matchingIds.length > 0) {
+		const placeholders = matchingIds.map(() => '?').join(',');
+		const query = `SELECT * FROM notes WHERE id IN (${placeholders})`;
+		const { results } = await c.env.DATABASE.prepare(query).bind(...matchingIds).all<Note>();
+		retrievedNotes = results || [];
+	}
+
+	// Build context from retrieved notes
+	const contextMessage = retrievedNotes.length
+		? `Retrieved Documents:\n${retrievedNotes.map((note, idx) => `[${idx + 1}] (ID: ${note.id})\n${note.text}`).join("\n\n")}`
+		: "No relevant documents found in the knowledge base.";
+
+	// System prompt for document-constrained responses
+	const systemPrompt = `You are a helpful AI assistant that answers questions based ONLY on the information provided in the retrieved documents.
+
+IMPORTANT RULES:
+1. You must ONLY use information from the "Retrieved Documents" section provided below
+2. If no relevant documents are found, or if the documents don't contain information to answer the question, you MUST say "I don't have enough information in the knowledge base to answer that question."
+3. When you use information from a document, you MUST cite it by including the document ID in your response like this: [ID: <document-id>]
+4. Do NOT use any external knowledge or make assumptions beyond what's in the retrieved documents
+5. Be concise and factual in your responses
+
+${contextMessage}`;
+
+	let modelUsed: string = "";
+	let assistantMessage: string = "";
+
+	// Build conversation messages for the AI
+	const conversationMessages = history.map(msg => ({
+		role: msg.role as 'user' | 'assistant',
+		content: msg.content
+	}));
+	conversationMessages.push({ role: 'user', content: message });
+
+	if (c.env.ANTHROPIC_API_KEY) {
+		const anthropic = new Anthropic({
+			apiKey: c.env.ANTHROPIC_API_KEY
+		});
+
+		const model = "claude-3-5-sonnet-latest";
+		modelUsed = model;
+
+		const response = await anthropic.messages.create({
+			max_tokens: 2048,
+			model,
+			messages: conversationMessages,
+			system: systemPrompt
+		});
+
+		assistantMessage = (response.content as TextBlock[]).map(content => content.text).join("\n");
+	} else {
+		const model = "@cf/meta/llama-3.1-8b-instruct" as any;
+		modelUsed = model;
+
+		const response = await c.env.AI.run(
+			model,
+			{
+				messages: [
+					{ role: 'system', content: systemPrompt },
+					...conversationMessages
+				]
+			}
+		) as AiTextGenerationOutput;
+
+		assistantMessage = response.response || "Unable to generate response";
+	}
+
+	// Save assistant message with sources
+	const assistantMessageId = crypto.randomUUID();
+	const sources = retrievedNotes.length > 0 ? JSON.stringify(retrievedNotes.map(n => ({ id: n.id, text: n.text }))) : null;
+
+	await c.env.DATABASE.prepare(
+		`INSERT INTO messages (id, conversation_id, role, content, sources) VALUES (?, ?, ?, ?, ?)`
+	).bind(assistantMessageId, conversationId, 'assistant', assistantMessage, sources).run();
+
+	// Return the assistant's response with sources
+	const responseData: ChatMessage = {
+		role: 'assistant',
+		content: assistantMessage,
+		sources: retrievedNotes.length > 0 ? retrievedNotes.map(n => ({ id: n.id, text: n.text })) : undefined
+	};
+
+	c.header('x-model-used', modelUsed);
+	return c.json(responseData);
 })
 
 app.get('/', async (c) => {
