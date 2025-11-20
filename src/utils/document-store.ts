@@ -23,11 +23,13 @@ export class DocumentStore {
   private static readonly MAX_IDS = 1000;
   private kv: KVNamespace;
   private db: D1Database;
+  private vectorIndex: VectorizeIndex;
   private logger: Logger;
 
   constructor(env: Env, logger: Logger) {
     this.kv = env.DOCUMENTS;
     this.db = env.DATABASE;
+    this.vectorIndex = env.VECTOR_INDEX;
     this.logger = logger.child({ component: 'DocumentStore' });
   }
 
@@ -228,26 +230,43 @@ export class DocumentStore {
   }
 
   /**
-   * Delete a document and all associated data
+   * Delete a document and all associated data (KV, D1, and Vectorize)
+   * Ensures complete cleanup across all storage layers to prevent orphaned data
    */
   async deleteDocument(documentId: string): Promise<void> {
     this.logger.info('Deleting document', { documentId });
     this.logger.startTimer(`deleteDocument:${documentId}`);
 
     try {
-      // Delete from KV
+      // Step 1: Retrieve associated note IDs before deletion (needed for Vectorize cleanup)
+      this.logger.debug('Retrieving associated notes for vector cleanup', { documentId });
+      const notesResult = await this.db
+        .prepare('SELECT id FROM notes WHERE document_id = ?')
+        .bind(documentId)
+        .all<{ id: string }>();
+      const noteIds = notesResult.results?.map(n => n.id) || [];
+      this.logger.debug('Found notes to delete', { documentId, count: noteIds.length });
+
+      // Step 2: Delete from Vectorize index
+      if (noteIds.length > 0) {
+        this.logger.debug('Deleting vectors from index', { documentId, vectorCount: noteIds.length });
+        await this.vectorIndex.deleteByIds(noteIds);
+        this.logger.debug('Vectors deleted from index', { documentId, vectorCount: noteIds.length });
+      }
+
+      // Step 3: Delete from KV
       const kvKey = this.getDocumentKey(documentId);
       await this.kv.delete(kvKey);
       this.logger.debug('Document deleted from KV', { kvKey });
 
-      // Delete from D1 (notes will cascade delete due to foreign key)
+      // Step 4: Delete from D1 (notes will cascade delete due to foreign key)
       await this.db
         .prepare('DELETE FROM documents WHERE id = ?')
         .bind(documentId)
         .run();
 
       this.logger.debug('Document deleted from D1', { documentId });
-      this.logger.endTimer(`deleteDocument:${documentId}`, { success: true });
+      this.logger.endTimer(`deleteDocument:${documentId}`, { success: true, vectorCount: noteIds.length });
     } catch (error) {
       this.logger.error(
         'Failed to delete document',
