@@ -1,5 +1,34 @@
 -- Migration number: 0002 	 2025-11-18T00:00:00.000Z
 -- Add document storage and metadata tracking
+--
+-- ROLLBACK PROCEDURE (if needed):
+-- ================================
+-- WARNING: Rolling back will delete all document metadata and break document references.
+-- Only perform this rollback if absolutely necessary (e.g., critical bug in migration).
+--
+-- To rollback this migration:
+-- 1. Restore the original notes table from backup:
+--    DROP TABLE notes;
+--    ALTER TABLE notes_backup RENAME TO notes;
+--
+-- 2. Remove the documents table and related indexes:
+--    DROP INDEX IF EXISTS idx_documents_uploaded_at;
+--    DROP TABLE IF EXISTS documents;
+--
+-- 3. Remove the notes table indexes added by this migration:
+--    DROP INDEX IF EXISTS idx_notes_document_id;
+--
+-- Execute rollback with:
+--    wrangler d1 execute DATABASE --file=migrations/0002_rollback.sql
+-- (Create 0002_rollback.sql with the above DROP/ALTER commands)
+--
+-- VERIFICATION after rollback:
+--    SELECT COUNT(*) FROM notes;  -- Should match pre-migration count
+--    SELECT * FROM sqlite_master WHERE type='table';  -- Should not show 'documents'
+--
+-- CLEANUP after successful migration (optional):
+-- Once you've verified the migration worked correctly, you can remove the backup:
+--    DROP TABLE IF EXISTS notes_backup;
 
 -- Create documents table to track source documents
 CREATE TABLE IF NOT EXISTS documents (

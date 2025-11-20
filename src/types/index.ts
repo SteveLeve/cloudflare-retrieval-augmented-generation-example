@@ -107,6 +107,7 @@ export interface Env {
   DOCUMENTS: KVNamespace; // KV store for full documents
   RAG_WORKFLOW: Workflow;
   ANTHROPIC_API_KEY?: string;
+  ANTHROPIC_MODEL?: string;
   ENABLE_TEXT_SPLITTING?: string;
 }
 
