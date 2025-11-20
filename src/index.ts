@@ -255,7 +255,7 @@ app.get('/', async (c) => {
 			apiKey: c.env.ANTHROPIC_API_KEY
 		})
 
-		const model = c.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest"
+		const model = c.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001"
 		modelUsed = model
 		logger.debug('Using Anthropic Claude', { model });
 
