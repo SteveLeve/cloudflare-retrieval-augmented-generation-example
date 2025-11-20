@@ -20,6 +20,7 @@ import {
 import { Logger } from './logger';
 
 export class DocumentStore {
+  private static readonly MAX_IDS = 1000;
   private kv: KVNamespace;
   private db: D1Database;
   private logger: Logger;
@@ -288,30 +289,42 @@ export class DocumentStore {
 
   /**
    * Get notes by IDs (used for RAG query results)
+   * Enforces a maximum limit on the number of IDs to prevent DoS/query size violations
    */
   async getNotesByIds(noteIds: string[]): Promise<NoteRecord[]> {
     if (noteIds.length === 0) {
       return [];
     }
 
-    this.logger.debug('Retrieving notes by IDs', { count: noteIds.length });
+    // Check if array exceeds maximum limit
+    if (noteIds.length > DocumentStore.MAX_IDS) {
+      this.logger.warn('Note ID array exceeds maximum', {
+        requested: noteIds.length,
+        limit: DocumentStore.MAX_IDS
+      });
+    }
+
+    // Limit to MAX_IDS to prevent query size violations
+    const limitedIds = noteIds.slice(0, DocumentStore.MAX_IDS);
+
+    this.logger.debug('Retrieving notes by IDs', { count: limitedIds.length });
 
     try {
-      const placeholders = noteIds.map(() => '?').join(',');
+      const placeholders = limitedIds.map(() => '?').join(',');
       const result = await this.db
         .prepare(`SELECT * FROM notes WHERE id IN (${placeholders})`)
-        .bind(...noteIds)
+        .bind(...limitedIds)
         .all<NoteRecord>();
 
       const notes = result.results || [];
-      this.logger.debug('Notes retrieved', { requested: noteIds.length, found: notes.length });
+      this.logger.debug('Notes retrieved', { requested: limitedIds.length, found: notes.length });
 
       return notes;
     } catch (error) {
       this.logger.error(
         'Failed to retrieve notes by IDs',
         error instanceof Error ? error : new Error(String(error)),
-        { noteIds }
+        { count: limitedIds.length }
       );
       throw error;
     }
