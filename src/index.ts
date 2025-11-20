@@ -97,10 +97,45 @@ app.post('/notes', async (c) => {
 	const logger = createLogger({ endpoint: 'POST /notes' });
 	logger.info('Received note creation request');
 
+	// Validation constants
+	const MAX_CONTENT_SIZE = 25 * 1024 * 1024; // 25 MiB (KV limit)
+	const MAX_TITLE_LENGTH = 1000;
+
 	const { text, title, contentType, metadata } = await c.req.json();
+
+	// Validate text presence
 	if (!text) {
 		logger.warn('Missing text in request');
-		return c.text("Missing text", 400);
+		return c.json({ error: "Missing text" }, 400);
+	}
+
+	// Validate content size (account for JSON serialization overhead)
+	const estimatedSize = new TextEncoder().encode(text).length;
+	if (estimatedSize > MAX_CONTENT_SIZE) {
+		logger.warn('Content exceeds size limit', {
+			size: estimatedSize,
+			limit: MAX_CONTENT_SIZE
+		});
+		return c.json({
+			error: `Content too large. Maximum size: ${MAX_CONTENT_SIZE} bytes (${Math.round(MAX_CONTENT_SIZE / 1024 / 1024)} MiB)`
+		}, 400);
+	}
+
+	// Validate title length
+	if (title && title.length > MAX_TITLE_LENGTH) {
+		logger.warn('Title exceeds length limit', {
+			length: title.length,
+			limit: MAX_TITLE_LENGTH
+		});
+		return c.json({
+			error: `Title too long. Maximum length: ${MAX_TITLE_LENGTH} characters`
+		}, 400);
+	}
+
+	// Validate metadata is a proper object (not null, not array)
+	if (metadata !== undefined && (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata))) {
+		logger.warn('Invalid metadata type', { type: typeof metadata, isArray: Array.isArray(metadata) });
+		return c.json({ error: "Metadata must be an object" }, 400);
 	}
 
 	const params: Params = {
@@ -110,7 +145,12 @@ app.post('/notes', async (c) => {
 		metadata: metadata || {},
 	};
 
-	logger.info('Creating workflow instance', { title: params.title });
+	logger.info('Creating workflow instance', {
+		title: params.title,
+		contentSize: estimatedSize,
+		hasMetadata: Object.keys(params.metadata).length > 0
+	});
+
 	const instance = await c.env.RAG_WORKFLOW.create({ params });
 
 	logger.info('Workflow created successfully', { instanceId: instance.id });
@@ -160,18 +200,28 @@ app.get('/', async (c) => {
 		const noteRecords = await docStore.getNotesByIds(noteIds);
 		notes = noteRecords.map(note => note.text);
 
-		// Get document metadata for sources
+		// Get document metadata for sources (batched query to avoid N+1 problem)
 		const documentIds = [...new Set(noteRecords.map(n => n.document_id))];
-		logger.debug('Retrieving document metadata', { documentIds });
+		logger.debug('Retrieving document metadata', { documentIds, count: documentIds.length });
 
+		// Batch query for all unique document IDs
+		const placeholders = documentIds.map(() => '?').join(',');
+		const docResults = await c.env.DATABASE
+			.prepare(`SELECT id, title FROM documents WHERE id IN (${placeholders})`)
+			.bind(...documentIds)
+			.all<{ id: string; title: string }>();
+
+		// Build document lookup map for O(1) access
+		const docMap = new Map(
+			(docResults.results || []).map(doc => [doc.id, doc])
+		);
+		logger.debug('Document metadata retrieved', { requested: documentIds.length, found: docMap.size });
+
+		// Build sources array using the lookup map (no database calls in loop)
 		for (const match of vectorQuery.matches) {
 			const note = noteRecords.find(n => n.id === match.id);
 			if (note) {
-				const docResult = await c.env.DATABASE
-					.prepare('SELECT id, title FROM documents WHERE id = ?')
-					.bind(note.document_id)
-					.first<{ id: string; title: string }>();
-
+				const docResult = docMap.get(note.document_id);
 				if (docResult) {
 					sources.push({
 						documentId: docResult.id,
@@ -205,7 +255,7 @@ app.get('/', async (c) => {
 			apiKey: c.env.ANTHROPIC_API_KEY
 		})
 
-		const model = "claude-3-5-sonnet-latest"
+		const model = c.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest"
 		modelUsed = model
 		logger.debug('Using Anthropic Claude', { model });
 
@@ -222,7 +272,7 @@ app.get('/', async (c) => {
 			response: (message.content as TextBlock[]).map(content => content.text).join("\n")
 		}
 	} else {
-		const model = "@cf/meta/llama-3.1-8b-instruct" as any
+		const model = "@cf/meta/llama-3.1-8b-instruct"
 		modelUsed = model
 		logger.debug('Using Workers AI', { model });
 
@@ -246,8 +296,8 @@ app.get('/', async (c) => {
 
 		logger.endTimer('query', { success: true, modelUsed, sourceCount: sources.length });
 
-		// Return text response with source information in header
-		const responseText = (response as any).response;
+		// Extract response text with type safety
+		const responseText = 'response' in response ? response.response : '';
 		if (sources.length > 0) {
 			c.header('x-sources', JSON.stringify(sources));
 		}
