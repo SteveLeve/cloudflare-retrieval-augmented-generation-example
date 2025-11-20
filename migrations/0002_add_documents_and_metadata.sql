@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE INDEX IF NOT EXISTS idx_documents_uploaded_at ON documents(uploaded_at);
 
 -- Backup existing notes (for safety)
+-- NOTE: Drop this table after verifying migration success with: DROP TABLE notes_backup;
 CREATE TABLE IF NOT EXISTS notes_backup AS SELECT * FROM notes;
 
 -- Create new notes table with document tracking
@@ -60,6 +61,8 @@ CREATE INDEX IF NOT EXISTS idx_notes_document_id ON notes_new(document_id);
 
 -- Migrate existing notes to new schema
 -- Existing notes will be assigned to a special "legacy" document
+-- Note: The uploaded_at timestamp for the legacy document is set to the migration execution time
+--       using strftime('%s', 'now'), since the actual upload time of legacy notes is unknown.
 INSERT INTO documents (id, title, content_type, uploaded_at, chunk_count, metadata)
 VALUES ('legacy-document', 'Legacy Notes', 'text/plain', strftime('%s', 'now'),
         (SELECT COUNT(*) FROM notes), '{"source":"migration","description":"Pre-existing notes before document tracking"}');
