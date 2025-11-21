@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>Chat | Cloudflare RAG Example</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
+  <style>
+    #chat-container {
+      max-width: 800px;
+      margin: 0 auto;
+      height: 60vh;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      background-color: #f9f9f9;
+      border-radius: 4px;
+    }
+
+    .message {
+      margin-bottom: 1rem;
+      padding: 0.75rem;
+      border-radius: 4px;
+    }
+
+    .message.user {
+      background-color: #e3f2fd;
+      text-align: right;
+    }
+
+    .message.assistant {
+      background-color: #f5f5f5;
+    }
+
+    .message-role {
+      font-weight: bold;
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+      color: #666;
+    }
+
+    .message-content {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .sources {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid #ddd;
+      font-size: 0.85rem;
+    }
+
+    .source-item {
+      margin: 0.5rem 0;
+      padding: 0.5rem;
+      background-color: #fff;
+      border-left: 3px solid #4caf50;
+      border-radius: 2px;
+    }
+
+    .source-id {
+      font-weight: bold;
+      color: #4caf50;
+      font-family: monospace;
+      font-size: 0.8rem;
+    }
+
+    .source-text {
+      margin-top: 0.25rem;
+      color: #666;
+      font-size: 0.8rem;
+      max-height: 100px;
+      overflow-y: auto;
+    }
+
+    #message-form {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    #message-input {
+      flex: 1;
+      min-height: 60px;
+    }
+
+    #send-button {
+      align-self: flex-end;
+    }
+
+    #send-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 1rem;
+      color: #666;
+      font-style: italic;
+    }
+
+    .error {
+      background-color: #ffebee;
+      color: #c62828;
+      padding: 1rem;
+      border-radius: 4px;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>RAG Chat with Memory</h1>
+
+  <p>
+    <small>
+      <a href="/ui">Query</a> ・ <a href="/notes">Notes</a> ・ <a href="/write">Add document</a> ・ <a href="/documents">Documents</a> ・ <a href="/chat">Chat</a>
+    </small>
+  </p>
+
+  <p>
+    <small>
+      This chat assistant uses retrieval-augmented generation (RAG) to answer questions based on the documents in the knowledge base.
+      It will cite its sources and only provide information from retrieved documents.
+    </small>
+  </p>
+
+  <div id="error-container"></div>
+
+  <div id="chat-container"></div>
+
+  <form id="message-form">
+    <textarea id="message-input" placeholder="Ask a question about the knowledge base..." required></textarea>
+    <button id="send-button" type="submit">Send</button>
+  </form>
+
+  <script>
+    let conversationId = null;
+    let isLoading = false;
+
+    const chatContainer = document.getElementById('chat-container');
+    const messageForm = document.getElementById('message-form');
+    const messageInput = document.getElementById('message-input');
+    const sendButton = document.getElementById('send-button');
+    const errorContainer = document.getElementById('error-container');
+
+    // Create a new conversation on page load
+    async function initializeConversation() {
+      try {
+        const response = await fetch('/chat/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to create conversation');
+        }
+
+        const conversation = await response.json();
+        conversationId = conversation.id;
+        console.log('Conversation created:', conversationId);
+
+        // Load existing messages (if any)
+        await loadMessages();
+      } catch (error) {
+        showError('Failed to initialize chat: ' + error.message);
+      }
+    }
+
+    // Load conversation history
+    async function loadMessages() {
+      if (!conversationId) return;
+
+      try {
+        const response = await fetch(`/chat/conversations/${conversationId}`);
+        if (!response.ok) throw new Error('Failed to load messages');
+
+        const messages = await response.json();
+        chatContainer.innerHTML = '';
+
+        messages.forEach(msg => {
+          displayMessage(msg);
+        });
+
+        scrollToBottom();
+      } catch (error) {
+        showError('Failed to load messages: ' + error.message);
+      }
+    }
+
+    // Display a message in the chat
+    function displayMessage(msg) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${msg.role}`;
+
+      const roleDiv = document.createElement('div');
+      roleDiv.className = 'message-role';
+      roleDiv.textContent = msg.role === 'user' ? 'You' : 'Assistant';
+
+      const contentDiv = document.createElement('div');
+      contentDiv.className = 'message-content';
+      contentDiv.textContent = msg.content;
+
+      messageDiv.appendChild(roleDiv);
+      messageDiv.appendChild(contentDiv);
+
+      // Add sources if available
+      if (msg.sources && msg.sources.length > 0) {
+        const sourcesDiv = document.createElement('div');
+        sourcesDiv.className = 'sources';
+        sourcesDiv.innerHTML = '<strong>📚 Sources:</strong>';
+
+        msg.sources.forEach(source => {
+          const sourceItem = document.createElement('div');
+          sourceItem.className = 'source-item';
+
+          const sourceId = document.createElement('div');
+          sourceId.className = 'source-id';
+          sourceId.textContent = `ID: ${source.id}`;
+
+          const sourceText = document.createElement('div');
+          sourceText.className = 'source-text';
+          sourceText.textContent = source.text;
+
+          sourceItem.appendChild(sourceId);
+          sourceItem.appendChild(sourceText);
+          sourcesDiv.appendChild(sourceItem);
+        });
+
+        messageDiv.appendChild(sourcesDiv);
+      }
+
+      chatContainer.appendChild(messageDiv);
+    }
+
+    // Send a message
+    async function sendMessage(messageText) {
+      if (!conversationId || !messageText.trim()) return;
+
+      setLoading(true);
+      errorContainer.innerHTML = '';
+
+      // Display user message immediately
+      displayMessage({
+        role: 'user',
+        content: messageText
+      });
+
+      // Show loading indicator
+      const loadingDiv = document.createElement('div');
+      loadingDiv.className = 'loading';
+      loadingDiv.textContent = 'Assistant is thinking...';
+      loadingDiv.id = 'loading-indicator';
+      chatContainer.appendChild(loadingDiv);
+      scrollToBottom();
+
+      try {
+        const response = await fetch(`/chat/conversations/${conversationId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: messageText })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to send message');
+        }
+
+        const assistantMessage = await response.json();
+
+        // Remove loading indicator
+        document.getElementById('loading-indicator')?.remove();
+
+        // Display assistant message
+        displayMessage(assistantMessage);
+        scrollToBottom();
+
+        // Clear input
+        messageInput.value = '';
+      } catch (error) {
+        document.getElementById('loading-indicator')?.remove();
+        showError('Failed to send message: ' + error.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // Helper functions
+    function scrollToBottom() {
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    function setLoading(loading) {
+      isLoading = loading;
+      sendButton.disabled = loading;
+      messageInput.disabled = loading;
+    }
+
+    function showError(message) {
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'error';
+      errorDiv.textContent = message;
+      errorContainer.innerHTML = '';
+      errorContainer.appendChild(errorDiv);
+    }
+
+    // Event listeners
+    messageForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const messageText = messageInput.value.trim();
+      if (messageText) {
+        await sendMessage(messageText);
+      }
+    });
+
+    // Allow Ctrl+Enter to send message
+    messageInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.ctrlKey) {
+        e.preventDefault();
+        messageForm.dispatchEvent(new Event('submit'));
+      }
+    });
+
+    // Initialize on page load
+    initializeConversation();
+  </script>
+</body>
+
+</html>

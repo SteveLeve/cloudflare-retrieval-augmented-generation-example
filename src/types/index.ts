@@ -155,3 +155,32 @@ export interface EmbeddingResult {
   success: boolean;
   error?: string;
 }
+
+/**
+ * Conversation record in D1 database
+ */
+export interface Conversation {
+  id: string;
+  created_at: number;
+}
+
+/**
+ * Message record in D1 database
+ */
+export interface Message {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  sources: string | null;
+  created_at: number;
+}
+
+/**
+ * Chat message with optional source attribution
+ */
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  sources?: Array<{ id: string; text: string }>;
+}
