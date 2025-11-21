@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>Documents | Cloudflare RAG Example</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
+  <style>
+    .document {
+      border: 1px solid #ddd;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      border-radius: 4px;
+    }
+    .document h3 {
+      margin-top: 0;
+    }
+    .metadata {
+      font-size: 0.9em;
+      color: #666;
+      margin: 0.5rem 0;
+    }
+    .metadata span {
+      margin-right: 1rem;
+    }
+    .chunk-info {
+      font-size: 0.85em;
+      color: #888;
+    }
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #666;
+    }
+    .error {
+      color: red;
+      padding: 1rem;
+      border: 1px solid red;
+      border-radius: 4px;
+      background: #fff0f0;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Documents</h1>
+
+  <p>
+    <small>
+      <a href="/ui">Query</a> ・ <a href="/notes">Notes</a> ・ <a href="/documents">Documents</a> ・ <a href="/write">Add document</a>
+    </small>
+  </p>
+
+  <div id="documentList">
+    <div class="loading">Loading documents...</div>
+  </div>
+
+  <script>
+    async function loadDocuments() {
+      const container = document.getElementById('documentList');
+      try {
+        const response = await fetch('/documents');
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const documents = data.documents || [];
+
+        if (documents.length === 0) {
+          container.textContent = 'No documents found. ';
+          const link = document.createElement('a');
+          link.href = '/write';
+          link.textContent = 'Add a document';
+          container.appendChild(link);
+          container.appendChild(document.createTextNode(' to get started.'));
+          return;
+        }
+
+        // Clear container
+        container.innerHTML = '';
+
+        documents.forEach(doc => {
+          const uploadDate = new Date(doc.uploaded_at).toLocaleString();
+          let metadata = {};
+          try {
+            metadata = doc.metadata ? JSON.parse(doc.metadata) : {};
+          } catch (e) {
+            console.error('Failed to parse metadata:', e);
+          }
+
+          const docDiv = document.createElement('div');
+          docDiv.className = 'document';
+
+          // Title
+          const title = document.createElement('h3');
+          title.textContent = doc.title;
+          docDiv.appendChild(title);
+
+          // Main metadata
+          const mainMetadata = document.createElement('div');
+          mainMetadata.className = 'metadata';
+          
+          const uploadSpan = document.createElement('span');
+          uploadSpan.innerHTML = '<strong>Uploaded:</strong> ';
+          uploadSpan.appendChild(document.createTextNode(uploadDate));
+          mainMetadata.appendChild(uploadSpan);
+
+          const typeSpan = document.createElement('span');
+          typeSpan.innerHTML = '<strong>Type:</strong> ';
+          typeSpan.appendChild(document.createTextNode(doc.content_type || 'text/plain'));
+          mainMetadata.appendChild(typeSpan);
+
+          const chunksSpan = document.createElement('span');
+          chunksSpan.innerHTML = '<strong>Chunks:</strong> ';
+          chunksSpan.appendChild(document.createTextNode(doc.chunk_count));
+          mainMetadata.appendChild(chunksSpan);
+
+          docDiv.appendChild(mainMetadata);
+
+          // Additional metadata fields
+          if (metadata.author) {
+            const authorDiv = document.createElement('div');
+            authorDiv.className = 'metadata';
+            authorDiv.innerHTML = '<strong>Author:</strong> ';
+            authorDiv.appendChild(document.createTextNode(metadata.author));
+            docDiv.appendChild(authorDiv);
+          }
+
+          if (metadata.description) {
+            const descDiv = document.createElement('div');
+            descDiv.className = 'metadata';
+            descDiv.innerHTML = '<strong>Description:</strong> ';
+            descDiv.appendChild(document.createTextNode(metadata.description));
+            docDiv.appendChild(descDiv);
+          }
+
+          if (metadata.source) {
+            const sourceDiv = document.createElement('div');
+            sourceDiv.className = 'metadata';
+            sourceDiv.innerHTML = '<strong>Source:</strong> ';
+            sourceDiv.appendChild(document.createTextNode(metadata.source));
+            docDiv.appendChild(sourceDiv);
+          }
+
+          if (metadata.tags && Array.isArray(metadata.tags)) {
+            const tagsDiv = document.createElement('div');
+            tagsDiv.className = 'metadata';
+            tagsDiv.innerHTML = '<strong>Tags:</strong> ';
+            tagsDiv.appendChild(document.createTextNode(metadata.tags.join(', ')));
+            docDiv.appendChild(tagsDiv);
+          }
+
+          // Chunk info
+          const chunkInfo = document.createElement('div');
+          chunkInfo.className = 'chunk-info';
+          const small = document.createElement('small');
+          small.textContent = 'Document ID: ';
+          const code = document.createElement('code');
+          code.textContent = doc.id;
+          small.appendChild(code);
+          chunkInfo.appendChild(small);
+          docDiv.appendChild(chunkInfo);
+
+          // View button
+          const button = document.createElement('button');
+          button.textContent = 'View Full Document';
+          button.onclick = () => viewDocument(doc.id);
+          docDiv.appendChild(button);
+
+          container.appendChild(docDiv);
+        });
+      } catch (error) {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error';
+        errorDiv.textContent = 'Failed to load documents: ' + error.message;
+        container.innerHTML = '';
+        container.appendChild(errorDiv);
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    async function viewDocument(id) {
+      try {
+        const response = await fetch(`/documents/${id}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const doc = await response.json();
+
+        // Create a new window and build content using DOM manipulation
+        const contentWindow = window.open('', '_blank');
+        
+        // Build document structure safely
+        const html = contentWindow.document.createElement('html');
+        const head = contentWindow.document.createElement('head');
+        const body = contentWindow.document.createElement('body');
+
+        // Meta charset
+        const meta = contentWindow.document.createElement('meta');
+        meta.setAttribute('charset', 'UTF-8');
+        head.appendChild(meta);
+
+        // Title
+        const title = contentWindow.document.createElement('title');
+        title.textContent = doc.title;
+        head.appendChild(title);
+
+        // Stylesheet
+        const link = contentWindow.document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://cdn.jsdelivr.net/npm/water.css@2/out/water.css';
+        head.appendChild(link);
+
+        // Style
+        const style = contentWindow.document.createElement('style');
+        style.textContent = '.content { white-space: pre-wrap; font-family: monospace; } .chunk { border-left: 3px solid #ddd; padding-left: 1rem; margin: 1rem 0; }';
+        head.appendChild(style);
+
+        // Body content
+        const h1 = contentWindow.document.createElement('h1');
+        h1.textContent = doc.title;
+        body.appendChild(h1);
+
+        const typeP = contentWindow.document.createElement('p');
+        typeP.innerHTML = '<strong>Type:</strong> ';
+        typeP.appendChild(contentWindow.document.createTextNode(doc.contentType || 'text/plain'));
+        body.appendChild(typeP);
+
+        const uploadedP = contentWindow.document.createElement('p');
+        uploadedP.innerHTML = '<strong>Uploaded:</strong> ';
+        uploadedP.appendChild(contentWindow.document.createTextNode(new Date(doc.uploadedAt).toLocaleString()));
+        body.appendChild(uploadedP);
+
+        const contentH2 = contentWindow.document.createElement('h2');
+        contentH2.textContent = 'Full Content';
+        body.appendChild(contentH2);
+
+        const contentDiv = contentWindow.document.createElement('div');
+        contentDiv.className = 'content';
+        contentDiv.textContent = doc.content;
+        body.appendChild(contentDiv);
+
+        const chunksH2 = contentWindow.document.createElement('h2');
+        chunksH2.textContent = `Chunks (${doc.chunks.length})`;
+        body.appendChild(chunksH2);
+
+        doc.chunks.forEach((chunk) => {
+          const chunkDiv = contentWindow.document.createElement('div');
+          chunkDiv.className = 'chunk';
+          
+          const chunkH3 = contentWindow.document.createElement('h3');
+          chunkH3.textContent = `Chunk ${chunk.chunk_index + 1}`;
+          chunkDiv.appendChild(chunkH3);
+          
+          const chunkP = contentWindow.document.createElement('p');
+          chunkP.textContent = chunk.text;
+          chunkDiv.appendChild(chunkP);
+          
+          body.appendChild(chunkDiv);
+        });
+
+        html.appendChild(head);
+        html.appendChild(body);
+        
+        contentWindow.document.open();
+        contentWindow.document.write('<!DOCTYPE html>');
+        contentWindow.document.close();
+        contentWindow.document.documentElement.replaceWith(html);
+      } catch (error) {
+        alert('Failed to load document: ' + error.message);
+      }
+    }
+
+    // Load documents on page load
+    loadDocuments();
+  </script>
+</body>
+
+</html>

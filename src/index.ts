@@ -12,15 +12,12 @@ import notes from './notes.html'
 import ui from './ui.html'
 // @ts-expect-error
 import write from './write.html'
+// @ts-expect-error
+import documents from './documents.html'
 
-type Env = {
-	AI: Ai;
-	ANTHROPIC_API_KEY: string;
-	DATABASE: D1Database;
-	ENABLE_TEXT_SPLITTING: boolean | undefined;
-	RAG_WORKFLOW: Workflow;
-	VECTOR_INDEX: VectorizeIndex
-};
+import { Env, NoteRecord, VectorMetadata, CreateDocumentInput } from './types';
+import { createLogger } from './utils/logger';
+import { DocumentStore } from './utils/document-store';
 
 type Note = {
 	id: string;
@@ -29,10 +26,53 @@ type Note = {
 
 type Params = {
 	text: string;
+	title?: string;
+	contentType?: string;
+	metadata?: Record<string, unknown>;
 };
 
 const app = new Hono<{ Bindings: Env }>()
 app.use(cors())
+
+// Documents endpoints
+app.get('/documents', async (c) => {
+	const logger = createLogger({ endpoint: 'GET /documents' });
+	logger.info('Listing documents');
+
+	try {
+		const docStore = new DocumentStore(c.env, logger);
+		const documents = await docStore.listDocuments();
+
+		logger.info('Documents retrieved', { count: documents.length });
+		return c.json({ documents, count: documents.length });
+	} catch (error) {
+		logger.error('Failed to list documents', error instanceof Error ? error : new Error(String(error)));
+		return c.json({ error: 'Failed to list documents' }, 500);
+	}
+});
+
+app.get('/documents/:id', async (c) => {
+	const logger = createLogger({ endpoint: 'GET /documents/:id' });
+	const { id } = c.req.param();
+
+	logger.info('Retrieving document', { documentId: id });
+
+	try {
+		const docStore = new DocumentStore(c.env, logger);
+		const document = await docStore.getDocument(id);
+
+		if (!document) {
+			logger.warn('Document not found', { documentId: id });
+			return c.json({ error: 'Document not found' }, 404);
+		}
+
+		logger.info('Document retrieved', { documentId: id, chunkCount: document.chunks.length });
+		return c.json(document);
+	} catch (error) {
+		logger.error('Failed to retrieve document', error instanceof Error ? error : new Error(String(error)), { documentId: id });
+		return c.json({ error: 'Failed to retrieve document' }, 500);
+	}
+});
 
 app.get('/notes.json', async (c) => {
 	const query = `SELECT * FROM notes`
@@ -54,10 +94,67 @@ app.delete('/notes/:id', async (c) => {
 })
 
 app.post('/notes', async (c) => {
-	const { text } = await c.req.json();
-	if (!text) return c.text("Missing text", 400);
-	await c.env.RAG_WORKFLOW.create({ params: { text } })
-	return c.text("Created note", 201);
+	const logger = createLogger({ endpoint: 'POST /notes' });
+	logger.info('Received note creation request');
+
+	// Validation constants
+	const MAX_CONTENT_SIZE = 25 * 1024 * 1024; // 25 MiB (KV limit)
+	const MAX_TITLE_LENGTH = 1000;
+
+	const { text, title, contentType, metadata } = await c.req.json();
+
+	// Validate text presence
+	if (!text) {
+		logger.warn('Missing text in request');
+		return c.json({ error: "Missing text" }, 400);
+	}
+
+	// Validate content size (account for JSON serialization overhead with 20% safety margin)
+	const estimatedSize = Math.ceil(new TextEncoder().encode(text).length * 1.2);
+	if (estimatedSize > MAX_CONTENT_SIZE) {
+		logger.warn('Content exceeds size limit', {
+			size: estimatedSize,
+			limit: MAX_CONTENT_SIZE
+		});
+		return c.json({
+			error: `Content too large. Maximum size: ${MAX_CONTENT_SIZE} bytes (${Math.round(MAX_CONTENT_SIZE / 1024 / 1024)} MiB)`
+		}, 400);
+	}
+
+	// Validate title length
+	if (title && title.length > MAX_TITLE_LENGTH) {
+		logger.warn('Title exceeds length limit', {
+			length: title.length,
+			limit: MAX_TITLE_LENGTH
+		});
+		return c.json({
+			error: `Title too long. Maximum length: ${MAX_TITLE_LENGTH} characters`
+		}, 400);
+	}
+
+	// Validate metadata is a proper object (not null, not array)
+	if (metadata !== undefined && (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata))) {
+		logger.warn('Invalid metadata type', { type: typeof metadata, isArray: Array.isArray(metadata) });
+		return c.json({ error: "Metadata must be an object" }, 400);
+	}
+
+	const params: Params = {
+		text,
+		title: title || 'Untitled Document',
+		contentType: contentType || 'text/plain',
+		metadata: metadata || {},
+	};
+
+	logger.info('Creating workflow instance', {
+		title: params.title,
+		contentSize: estimatedSize,
+		hasMetadata: !!Object.keys(params.metadata || {}).length
+	});
+
+	const instance = await c.env.RAG_WORKFLOW.create({ params });
+
+	logger.info('Workflow created successfully', { instanceId: instance.id });
+	return c.json({ message: "Created document", workflowId: instance.id }, 201);
 })
 
 app.get('/ui', async (c) => {
@@ -68,20 +165,77 @@ app.get('/write', async (c) => {
 	return c.html(write);
 })
 
+app.get('/documents/ui', async (c) => {
+	return c.html(documents);
+})
+
 app.get('/', async (c) => {
+	const logger = createLogger({ endpoint: 'GET /' });
 	const question = c.req.query('text') || "What is the square root of 9?"
 
+	logger.info('Received query', { question });
+	logger.startTimer('query');
+
+	// Generate embeddings for the question
+	logger.debug('Generating embeddings for question');
 	const embeddings = await c.env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [question] }) as { data: number[][] }
 	const vectors = embeddings.data[0]
+	logger.debug('Embeddings generated', { vectorDimensions: vectors.length });
 
-	const vectorQuery = await c.env.VECTOR_INDEX.query(vectors, { topK: 3 });
-	const vecId = vectorQuery.matches[0]?.id
+	// Query vector index for similar content
+	logger.debug('Querying vector index', { topK: 3 });
+	const vectorQuery = await c.env.VECTOR_INDEX.query(vectors, { topK: 3, returnMetadata: true });
+	logger.info('Vector query complete', { matchCount: vectorQuery.matches.length });
 
+	const docStore = new DocumentStore(c.env, logger);
+
+	// Retrieve notes and document metadata
 	let notes: string[] = []
-	if (vecId) {
-		const query = `SELECT * FROM notes WHERE id = ?`
-		const { results } = await c.env.DATABASE.prepare(query).bind(vecId).all<Note>()
-		if (results) notes = results.map(note => note.text)
+	let sources: Array<{ documentId: string; title: string; chunkText: string; similarity: number }> = []
+
+	if (vectorQuery.matches.length > 0) {
+		const noteIds = vectorQuery.matches.map(m => m.id);
+		logger.debug('Retrieving notes', { noteIds });
+
+		const noteRecords = await docStore.getNotesByIds(noteIds);
+		notes = noteRecords.map(note => note.text);
+
+		// Get document metadata for sources (batched query to avoid N+1 problem)
+		const documentIds = [...new Set(noteRecords.map(n => n.document_id))];
+		logger.debug('Retrieving document metadata', { documentIds, count: documentIds.length });
+
+		// Batch query for all unique document IDs
+		const placeholders = documentIds.map(() => '?').join(',');
+		const docResults = await c.env.DATABASE
+			.prepare(`SELECT id, title FROM documents WHERE id IN (${placeholders})`)
+			.bind(...documentIds)
+			.all<{ id: string; title: string }>();
+
+		// Build document lookup map for O(1) access
+		const docMap = new Map(
+			(docResults.results || []).map(doc => [doc.id, doc])
+		);
+		logger.debug('Document metadata retrieved', { requested: documentIds.length, found: docMap.size });
+
+		// Build sources array using the lookup map (no database calls in loop)
+		for (const match of vectorQuery.matches) {
+			const note = noteRecords.find(n => n.id === match.id);
+			if (note) {
+				const docResult = docMap.get(note.document_id);
+				if (docResult) {
+					sources.push({
+						documentId: docResult.id,
+						title: docResult.title,
+						chunkText: note.text,
+						similarity: match.score,
+					});
+				}
+			}
+		}
+
+		logger.info('Retrieved context', { noteCount: notes.length, sourceCount: sources.length });
+	} else {
+		logger.info('No matching context found');
 	}
 
 	const contextMessage = notes.length
@@ -93,13 +247,17 @@ app.get('/', async (c) => {
 	let modelUsed: string = ""
 	let response: AiTextGenerationOutput | Anthropic.Message
 
+	logger.debug('Generating AI response');
+	logger.startTimer('ai-generation');
+
 	if (c.env.ANTHROPIC_API_KEY) {
 		const anthropic = new Anthropic({
 			apiKey: c.env.ANTHROPIC_API_KEY
 		})
 
-		const model = "claude-haiku-4-5-20251001"
+		const model = c.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001"
 		modelUsed = model
+		logger.debug('Using Anthropic Claude', { model });
 
 		const message = await anthropic.messages.create({
 			max_tokens: 1024,
@@ -114,8 +272,9 @@ app.get('/', async (c) => {
 			response: (message.content as TextBlock[]).map(content => content.text).join("\n")
 		}
 	} else {
-		const model = "@cf/meta/llama-3.1-8b-instruct" as any
+		const model = "@cf/meta/llama-3.1-8b-instruct"
 		modelUsed = model
+		logger.debug('Using Workers AI', { model });
 
 		response = await c.env.AI.run(
 			model,
@@ -129,10 +288,26 @@ app.get('/', async (c) => {
 		) as AiTextGenerationOutput
 	}
 
+	logger.endTimer('ai-generation');
+
 	if (response) {
 		c.header('x-model-used', modelUsed)
-		return c.text((response as any).response)
+		c.header('x-source-count', sources.length.toString())
+
+		logger.endTimer('query', { success: true, modelUsed, sourceCount: sources.length });
+
+		// Extract response text with type safety
+		const responseText = typeof response === 'object' && response !== null && 'response' in response && typeof response.response === 'string'
+			? response.response
+			: '';
+		if (sources.length > 0) {
+			c.header('x-sources', JSON.stringify(sources));
+		}
+
+		return c.text(responseText)
 	} else {
+		logger.error('Failed to generate response', new Error('No response from AI'));
+		logger.endTimer('query', { success: false });
 		return c.text("We were unable to generate output", 500)
 	}
 })
@@ -140,54 +315,134 @@ app.get('/', async (c) => {
 export class RAGWorkflow extends WorkflowEntrypoint<Env, Params> {
 	async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
 		const env = this.env
-		const { text } = event.payload;
-		let texts: string[] = [text]
+		const { text, title = 'Untitled Document', contentType = 'text/plain', metadata = {} } = event.payload;
 
-		if (env.ENABLE_TEXT_SPLITTING) {
+		const logger = createLogger({ workflow: 'RAGWorkflow', title });
+		logger.info('Starting RAG workflow', {
+			textLength: text.length,
+			title,
+			contentType
+		});
+
+		// Step 1: Generate document ID and store full document
+		const documentId = await step.do('create document', async () => {
+			const docId = crypto.randomUUID();
+			logger.info('Generated document ID', { documentId: docId });
+
+			const docStore = new DocumentStore(env, logger);
+			const input: CreateDocumentInput = {
+				content: text,
+				title,
+				contentType,
+				metadata,
+			};
+
+			await docStore.createDocument(input, docId);
+			logger.info('Document created successfully', { documentId: docId });
+
+			return docId;
+		});
+
+		// Step 2: Split text into chunks if enabled
+		let texts: string[] = [text]
+		if (env.ENABLE_TEXT_SPLITTING === 'true') {
 			texts = await step.do('split text', async () => {
+				logger.info('Starting text splitting');
 				const splitter = new RecursiveCharacterTextSplitter({
 					// These can be customized to change the chunking size
 					//chunkSize: 1000,
 					//chunkOverlap: 200,
 				});
 				const output = await splitter.createDocuments([text]);
-				return output.map(doc => doc.pageContent);
+				const chunks = output.map(doc => doc.pageContent);
+				logger.info('Text splitting complete', { chunkCount: chunks.length });
+				return chunks;
 			})
-
-			console.log("RecursiveCharacterTextSplitter generated ${texts.length} chunks")
 		}
 
+		logger.info('Processing chunks', { totalChunks: texts.length });
+
+		// Step 3: Process each chunk
 		for (const index in texts) {
-			const text = texts[index]
-			const record = await step.do(`create database record: ${index}/${texts.length}`, async () => {
-				const id = crypto.randomUUID()
-				const query = "INSERT INTO notes (id, text) VALUES (?, ?) RETURNING *"
+			const chunkText = texts[index]
+			const chunkIndex = parseInt(index);
+			logger.debug('Processing chunk', { chunkIndex, textLength: chunkText.length });
 
-				const { results } = await env.DATABASE.prepare(query)
-					.bind(id, text)
-					.run<Note>()
+			const noteRecord = await step.do(`create note record ${chunkIndex}/${texts.length}`, async () => {
+				const noteId = crypto.randomUUID()
+				logger.debug('Creating note record', { noteId, chunkIndex, documentId });
 
-				const record = results[0]
-				if (!record) throw new Error("Failed to create note")
-				return record;
+				const note: NoteRecord = {
+					id: noteId,
+					document_id: documentId,
+					text: chunkText,
+					chunk_index: chunkIndex,
+				};
+
+				const docStore = new DocumentStore(env, logger);
+				await docStore.createNote(note);
+				logger.debug('Note record created', { noteId, chunkIndex });
+
+				return note;
 			})
 
-			const embedding = await step.do(`generate embedding: ${index}/${texts.length}`, async () => {
-				const embeddings = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [text] }) as { data: number[][] }
+			const embedding = await step.do(`generate embedding ${chunkIndex}/${texts.length}`, async () => {
+				logger.debug('Generating embedding', { noteId: noteRecord.id, chunkIndex });
+
+				const embeddings = await env.AI.run('@cf/baai/bge-base-en-v1.5', {
+					text: [chunkText]
+				}) as { data: number[][] }
+
 				const values = embeddings.data[0]
-				if (!values) throw new Error("Failed to generate vector embedding")
+				if (!values) {
+					logger.error('Failed to generate embedding', undefined, { noteId: noteRecord.id, chunkIndex });
+					throw new Error("Failed to generate vector embedding")
+				}
+
+				logger.debug('Embedding generated', {
+					noteId: noteRecord.id,
+					chunkIndex,
+					vectorDimensions: values.length
+				});
+
 				return values
 			})
 
-			await step.do(`insert vector: ${index}/${texts.length}`, async () => {
-				return env.VECTOR_INDEX.upsert([
+			await step.do(`insert vector ${chunkIndex}/${texts.length}`, async () => {
+				logger.debug('Inserting vector', { noteId: noteRecord.id, chunkIndex });
+
+				const vectorMetadata: VectorMetadata = {
+					document_id: documentId,
+					note_id: noteRecord.id,
+					chunk_index: chunkIndex,
+				};
+
+				await env.VECTOR_INDEX.upsert([
 					{
-						id: record.id.toString(),
+						id: noteRecord.id,
 						values: embedding,
+						metadata: vectorMetadata,
 					}
 				]);
+
+				logger.debug('Vector inserted', { noteId: noteRecord.id, chunkIndex });
 			})
 		}
+
+		// Step 4: Update document chunk count
+		await step.do('update chunk count', async () => {
+			logger.info('Updating document chunk count', { documentId, chunkCount: texts.length });
+
+			const docStore = new DocumentStore(env, logger);
+			await docStore.updateChunkCount(documentId, texts.length);
+
+			logger.info('Chunk count updated', { documentId, chunkCount: texts.length });
+		});
+
+		logger.info('RAG workflow completed successfully', {
+			documentId,
+			chunkCount: texts.length
+		});
 	}
 }
 
