@@ -4,7 +4,6 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Logger, createLogger } from '../src/utils/logger';
-import { LogLevel } from '../src/types';
 
 describe('Logger', () => {
 	let consoleDebugSpy: any;

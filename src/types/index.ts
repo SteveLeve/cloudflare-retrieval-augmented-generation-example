@@ -108,6 +108,9 @@ export interface Env {
   RAG_WORKFLOW: Workflow;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
+  /**
+   * If set to the string "true", enables text splitting. Any other value (including "false" or undefined) disables it.
+   */
   ENABLE_TEXT_SPLITTING?: string;
 }
 

@@ -41,7 +41,7 @@
   "vectorize": [
     {
       "binding": "VECTOR_INDEX",
-      "index_name": "tutorial-index-768", 
+      "index_name": "tutorial-index-768",
       "remote": true
     }
   ],
@@ -59,6 +59,7 @@
   "kv_namespaces": [
     {
       "binding": "DOCUMENTS",
+      // TODO: Replace with actual KV namespace ID created via `wrangler kv:namespace create DOCUMENTS`
       "id": "50d4bf6f8c4e4306806e9a5d2676299b"
     }
   ]

@@ -15,7 +15,7 @@ import write from './write.html'
 // @ts-expect-error
 import documents from './documents.html'
 
-import { Env, NoteRecord, VectorMetadata, DocumentRecord, CreateDocumentInput } from './types';
+import { Env, NoteRecord, VectorMetadata, CreateDocumentInput } from './types';
 import { createLogger } from './utils/logger';
 import { DocumentStore } from './utils/document-store';
 
@@ -109,8 +109,8 @@ app.post('/notes', async (c) => {
 		return c.json({ error: "Missing text" }, 400);
 	}
 
-	// Validate content size (account for JSON serialization overhead)
-	const estimatedSize = new TextEncoder().encode(text).length;
+	// Validate content size (account for JSON serialization overhead with 20% safety margin)
+	const estimatedSize = Math.ceil(new TextEncoder().encode(text).length * 1.2);
 	if (estimatedSize > MAX_CONTENT_SIZE) {
 		logger.warn('Content exceeds size limit', {
 			size: estimatedSize,
@@ -148,7 +148,7 @@ app.post('/notes', async (c) => {
 	logger.info('Creating workflow instance', {
 		title: params.title,
 		contentSize: estimatedSize,
-		hasMetadata: Object.keys(params.metadata).length > 0
+		hasMetadata: !!Object.keys(params.metadata || {}).length
 	});
 
 	const instance = await c.env.RAG_WORKFLOW.create({ params });
@@ -297,7 +297,9 @@ app.get('/', async (c) => {
 		logger.endTimer('query', { success: true, modelUsed, sourceCount: sources.length });
 
 		// Extract response text with type safety
-		const responseText = 'response' in response ? response.response : '';
+		const responseText = typeof response === 'object' && response !== null && 'response' in response && typeof response.response === 'string'
+			? response.response
+			: '';
 		if (sources.length > 0) {
 			c.header('x-sources', JSON.stringify(sources));
 		}
@@ -343,7 +345,7 @@ export class RAGWorkflow extends WorkflowEntrypoint<Env, Params> {
 
 		// Step 2: Split text into chunks if enabled
 		let texts: string[] = [text]
-		if (env.ENABLE_TEXT_SPLITTING) {
+		if (env.ENABLE_TEXT_SPLITTING === 'true') {
 			texts = await step.do('split text', async () => {
 				logger.info('Starting text splitting');
 				const splitter = new RecursiveCharacterTextSplitter({
