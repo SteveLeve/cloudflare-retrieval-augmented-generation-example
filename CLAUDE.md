@@ -158,6 +158,18 @@ wrangler secret put ANTHROPIC_API_KEY
 - `GET /ui` - Web UI for asking questions with AI responses and source attribution
 - `GET /chat` - Chat interface with conversation history support
 
+### Chat API (Conversation Memory & RAG)
+- `POST /chat/conversations` - Create new conversation session, returns conversation ID
+- `GET /chat/conversations/:id` - Get full conversation history with message ordering
+- `POST /chat/conversations/:id/messages` - Send message, triggers RAG pipeline, returns response with source attribution
+
+**Chat Features**:
+- Conversation persistence across sessions
+- Full message history with timestamps
+- Automatic vector embedding for semantic search
+- System prompt enforces document-only responses
+- Source attribution: Retrieved documents shown with IDs and content preview
+
 ### Document Management
 - `POST /notes` - Add document to knowledge base (JSON body with `text`, optional `title`, `contentType`, `metadata`)
 - `GET /documents` - JSON endpoint listing all documents with metadata
@@ -244,3 +256,25 @@ When adding features that process documents:
 - Consider text splitting behavior (`ENABLE_TEXT_SPLITTING` config)
 - Metadata is stored in D1, full content in KV for optimal performance
 - Vector metadata includes document_id for traceability back to source documents
+
+### Chat Feature Maintenance
+The chat feature (`/chat` path) implements RAG with conversation memory:
+
+**System Prompt Constraints**:
+- 5-rule prompt enforces document-only responses
+- "Retrieved Documents" section contains top K=3 matching notes
+- Fallback message for queries with no relevant documents
+- Citation format `[ID: <note-id>]` enables source tracking
+
+**Conversation Management**:
+- Each chat session gets unique conversation ID (UUID)
+- Messages stored in D1 with conversation_id foreign key
+- Source attribution: matched notes serialized as JSON in message record
+- Timestamps enable sorting and conversation analytics
+
+**When Modifying Chat**:
+1. Never weaken RAG constraints in system prompt
+2. Top K value (3) balances context relevance vs token usage
+3. Retrieved notes passed to context include note ID and full text
+4. Sources returned to client for UI rendering
+5. Test with documents and verify citation format in responses
