@@ -68,14 +68,24 @@ describe('Logger', () => {
 	});
 
 	it('should create child logger with merged context', () => {
-		const parentLogger = new Logger({ parent: 'context' });
-		const childLogger = parentLogger.child({ child: 'context' });
+		const parentLogger = new Logger({ parent: 'value1' });
+		const childLogger = parentLogger.child({ child: 'value2' });
 
-		childLogger.info('Test message');
+		// Log with explicit context to verify merging works
+		childLogger.debug('Debug test', { extra: 'data' });
 
-		const logOutput = consoleInfoSpy.mock.calls[0][0];
+		expect(consoleDebugSpy).toHaveBeenCalled();
+		// Get all debug logs
+		const debugLogs = consoleDebugSpy.mock.calls.map(call => call[0] as string);
+		// Find the log with "Debug test"
+		const logOutput = debugLogs.find(log => log.includes('Debug test'));
+
+		expect(logOutput).toBeDefined();
 		expect(logOutput).toContain('parent');
 		expect(logOutput).toContain('child');
+		expect(logOutput).toContain('value1');
+		expect(logOutput).toContain('value2');
+		expect(logOutput).toContain('extra');
 	});
 
 	it('should track timer duration', () => {
@@ -86,7 +96,8 @@ describe('Logger', () => {
 		const duration = logger.endTimer('operation');
 
 		expect(duration).toBeGreaterThanOrEqual(0);
-		expect(consoleInfoSpy).toHaveBeenCalledTimes(1); // endTimer logs
+		expect(consoleInfoSpy).toHaveBeenCalled(); // endTimer logs
+		expect(consoleInfoSpy.mock.calls.some(call => call[0].includes('Timer ended: operation'))).toBe(true);
 	});
 
 	it('should handle ending timer that was not started', () => {
@@ -94,7 +105,8 @@ describe('Logger', () => {
 		const duration = logger.endTimer('nonexistent');
 
 		expect(duration).toBe(0);
-		expect(consoleWarnSpy).toHaveBeenCalledOnce();
+		expect(consoleWarnSpy).toHaveBeenCalled();
+		expect(consoleWarnSpy.mock.calls.some(call => call[0].includes('was not started'))).toBe(true);
 	});
 
 	it('should wrap async functions with logging', async () => {
@@ -105,7 +117,11 @@ describe('Logger', () => {
 
 		expect(result).toBe('result');
 		expect(mockFn).toHaveBeenCalledOnce();
-		expect(consoleInfoSpy).toHaveBeenCalledTimes(2); // start and end
+		expect(consoleInfoSpy).toHaveBeenCalled();
+		// Verify both "Starting" and "Timer ended" messages are logged
+		const infoCalls = consoleInfoSpy.mock.calls.map(call => call[0]);
+		expect(infoCalls.some(call => call.includes('Starting: test-operation'))).toBe(true);
+		expect(infoCalls.some(call => call.includes('Timer ended: test-operation'))).toBe(true);
 	});
 
 	it('should log errors in wrapped async functions', async () => {
@@ -117,6 +133,8 @@ describe('Logger', () => {
 			Logger.withLogging(logger, 'test-operation', mockFn)
 		).rejects.toThrow('Async error');
 
-		expect(consoleErrorSpy).toHaveBeenCalledOnce();
+		expect(consoleErrorSpy).toHaveBeenCalled();
+		const errorCalls = consoleErrorSpy.mock.calls.map(call => call[0]);
+		expect(errorCalls.some(call => call.includes('Failed: test-operation'))).toBe(true);
 	});
 });

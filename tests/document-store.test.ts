@@ -14,8 +14,22 @@ class MockKVNamespace implements KVNamespace {
 	private store: Map<string, string> = new Map();
 	private metadata: Map<string, Record<string, any>> = new Map();
 
-	async get(key: string): Promise<string | null> {
-		return this.store.get(key) || null;
+	async get(key: string, options?: Partial<KVNamespaceGetOptions<undefined>>): Promise<string | null>;
+	async get(key: string, type: "text"): Promise<string | null>;
+	async get<ExpectedValue = unknown>(key: string, type: "json"): Promise<ExpectedValue | null>;
+	async get(key: string, type: "arrayBuffer"): Promise<ArrayBuffer | null>;
+	async get(key: string, type: "stream"): Promise<ReadableStream<Uint8Array> | null>;
+	async get(
+		key: string,
+		options?: Partial<KVNamespaceGetOptions<undefined>> | "text" | "json" | "arrayBuffer" | "stream"
+	): Promise<string | ArrayBuffer | ReadableStream<Uint8Array> | null | unknown> {
+		const value = this.store.get(key);
+		if (!value) return null;
+
+		if (typeof options === 'string' && options === 'json') {
+			return JSON.parse(value);
+		}
+		return value;
 	}
 
 	async put(key: string, value: string, options?: any): Promise<void> {
@@ -34,10 +48,14 @@ class MockKVNamespace implements KVNamespace {
 		return { keys: Array.from(this.store.keys()) };
 	}
 
-	async getWithMetadata(key: string): Promise<any> {
+	async getWithMetadata<Metadata = unknown>(
+		key: string,
+		options?: Partial<KVNamespaceGetOptions<undefined>>
+	): Promise<KVNamespaceGetWithMetadataResult<string, Metadata>> {
+		const value = this.store.get(key);
 		return {
-			value: this.store.get(key),
-			metadata: this.metadata.get(key)
+			value: value || null,
+			metadata: (this.metadata.get(key) || null) as Metadata
 		};
 	}
 }
