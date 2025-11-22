@@ -100,6 +100,7 @@ app.post('/chat/conversations', async (c) => {
 	const id = crypto.randomUUID();
 	const query = `INSERT INTO conversations (id) VALUES (?) RETURNING *`;
 	const { results } = await c.env.DATABASE.prepare(query).bind(id).run<Conversation>();
+	if (!results || results.length === 0) return c.text('Failed to create conversation', 500);
 	return c.json(results[0]);
 })
 
@@ -112,7 +113,13 @@ app.get('/chat/conversations/:id', async (c) => {
 	const messages: ChatMessage[] = results.map(msg => ({
 		role: msg.role,
 		content: msg.content,
-		sources: msg.sources ? JSON.parse(msg.sources) : undefined
+		sources: msg.sources ? (() => {
+			try {
+				return JSON.parse(msg.sources);
+			} catch {
+				return undefined;
+			}
+		})() : undefined
 	}));
 
 	return c.json(messages);
@@ -125,15 +132,30 @@ app.post('/chat/conversations/:id/messages', async (c) => {
 
 	if (!message) return c.text("Missing message", 400);
 
+	// Check if conversation exists
+	const conv = await c.env.DATABASE.prepare('SELECT id FROM conversations WHERE id = ?').bind(conversationId).first();
+	if (!conv) return c.text('Conversation not found', 404);
+
+	// Get conversation history for context (before inserting new message)
+	const historyQuery = `SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC`;
+	const { results: history } = await c.env.DATABASE.prepare(historyQuery).bind(conversationId).all<Message>();
+
 	// Save user message
 	const userMessageId = crypto.randomUUID();
 	await c.env.DATABASE.prepare(
 		`INSERT INTO messages (id, conversation_id, role, content, sources) VALUES (?, ?, ?, ?, ?)`
 	).bind(userMessageId, conversationId, 'user', message, null).run();
 
-	// Get conversation history for context
-	const historyQuery = `SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC`;
-	const { results: history } = await c.env.DATABASE.prepare(historyQuery).bind(conversationId).all<Message>();
+	// Append the new user message to the history array
+	const now = new Date().toISOString();
+	history.push({
+		id: userMessageId,
+		conversation_id: conversationId,
+		role: 'user',
+		content: message,
+		sources: null,
+		created_at: now as any
+	});
 
 	// Generate embeddings for the user's message
 	const embeddings = await c.env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [message] }) as { data: number[][] };
