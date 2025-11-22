@@ -210,7 +210,10 @@
       if (msg.sources && msg.sources.length > 0) {
         const sourcesDiv = document.createElement('div');
         sourcesDiv.className = 'sources';
-        sourcesDiv.innerHTML = '<strong>📚 Sources:</strong>';
+
+        const sourcesHeader = document.createElement('strong');
+        sourcesHeader.textContent = '📚 Sources:';
+        sourcesDiv.appendChild(sourcesHeader);
 
         msg.sources.forEach(source => {
           const sourceItem = document.createElement('div');
