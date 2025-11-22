@@ -151,7 +151,7 @@ app.post('/chat/conversations/:id/messages', async (c) => {
 	).bind(userMessageId, conversationId, 'user', message, null).run();
 
 	// Append the new user message to the history array
-	const now = Date.now();
+	const now = Math.floor(Date.now() / 1000);
 	history.push({
 		id: userMessageId,
 		conversation_id: conversationId,
