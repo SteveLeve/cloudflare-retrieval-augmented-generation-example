@@ -317,10 +317,10 @@ Set in wrangler.jsonc:
 ## Support
 
 For issues or questions:
-1. Check `CHAT_FEATURE_VALIDATION.md` for detailed implementation info
+1. Check [Chat Feature Validation](chat-feature-validation.md) for detailed implementation info
 2. Review error messages in browser console (F12)
 3. Check `wrangler tail` for server logs
-4. See `CLAUDE.md` for architecture documentation
+4. See [CLAUDE.md](../../CLAUDE.md) for architecture documentation
 
 ## Files Reference
 

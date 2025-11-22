@@ -232,12 +232,65 @@ This repository has been modernized with the following updates:
 - Vectorize bindings do not support local development; use remote bindings for testing vector operations
 - AI bindings always access remote resources and may incur usage charges even in local dev
 
+## Documentation Standards
+
+This project maintains comprehensive documentation following established standards. See **[docs/README.md](docs/README.md)** for complete documentation guidelines.
+
+### Required Documentation
+
+**When making code changes, proactively create/update documentation**:
+
+1. **Architecture Decision Records (ADRs)**: `docs/decisions/`
+   - Use template: `docs/decisions/TEMPLATE.md`
+   - Create when choosing between technical alternatives
+   - Document significant architectural changes
+   - Reference ADR numbers in commit messages
+
+2. **Development Journal**: `docs/DEVELOPMENT_JOURNAL.md`
+   - Update after completing major milestones
+   - Include: objective, progress, decisions, deliverables, status
+   - Add entries at the top with current date
+
+3. **Root CLAUDE.md** (this file):
+   - Update when architecture changes
+   - Add new development patterns
+   - Document new configuration options
+   - Update API endpoint documentation
+
+4. **Root README.md**:
+   - Update for user-facing feature changes
+   - Add examples for new API endpoints
+   - Document new setup requirements
+
+### Documentation Workflow
+
+```
+1. Make significant decision → Create ADR (docs/decisions/NNN-title.md)
+2. Architecture change → Update CLAUDE.md
+3. Complete milestone → Update Development Journal
+4. User-facing feature → Update README.md
+5. Commit code + docs together
+```
+
+### Pre-Commit Documentation Checklist
+
+- [ ] Created ADR if significant decision made
+- [ ] Updated CLAUDE.md if architecture changed
+- [ ] Updated README.md if user-facing features added
+- [ ] Added development journal entry
+- [ ] All code examples in docs verified
+- [ ] Links and references working
+- [ ] Status and dates current
+
+See **[docs/CLAUDE.md](docs/CLAUDE.md)** for detailed Claude Code documentation workflow and best practices.
+
 ## Development Guidelines
 
 ### Before Committing
 - Run type checking: `npx tsc --noEmit`
 - Run tests: `npm test`
 - Verify all tests pass before committing
+- Complete documentation checklist above
 
 ### Testing Strategy
 - **Unit Tests**: Test utilities like Logger and DocumentStore in isolation

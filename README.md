@@ -90,6 +90,16 @@ After deploying, you can use the following routes:
 - `GET /` - Query endpoint that accepts a `?text` query param and returns an AI-generated response with context from the knowledge base
 - `GET /ui` - Web UI for asking questions and getting AI responses with source attribution
 
+### Chat Interface
+- `GET /chat` - Interactive chat interface with conversation memory and RAG-constrained responses
+- `POST /chat/conversations` - Create new conversation session
+- `GET /chat/conversations/:id` - Retrieve conversation history
+- `POST /chat/conversations/:id/messages` - Send message and get AI response with source attribution
+
+**Features**: Full conversation history, document-only responses enforced by system prompt, source attribution with document IDs and previews.
+
+**Documentation**: See [Chat Feature Quick Start](docs/features/chat-feature-quickstart.md) for usage guide and [Chat Feature Validation](docs/features/chat-feature-validation.md) for implementation details.
+
 ### Document Management
 - `GET /write` - Web UI for uploading documents with metadata (title, author, tags, etc.)
 - `POST /notes` - API endpoint to upload documents programmatically
@@ -254,14 +264,57 @@ See `tests/README.md` for detailed testing documentation.
 
 Architecture decisions are documented in `docs/decisions/` following the ADR pattern. See `docs/decisions/001-document-storage-strategy.md` for the rationale behind the hybrid KV+D1 approach.
 
+## Documentation
+
+This project maintains comprehensive documentation to ensure knowledge transfer and decision tracking:
+
+### Documentation Structure
+- **[docs/README.md](docs/README.md)** - Documentation standards and guidelines
+- **[docs/AGENTS.md](docs/AGENTS.md)** - Comprehensive instructions for AI assistants
+- **[docs/CLAUDE.md](docs/CLAUDE.md)** - Claude Code-specific documentation workflow
+- **[docs/decisions/](docs/decisions/)** - Architecture Decision Records (ADRs)
+- **[docs/DEVELOPMENT_JOURNAL.md](docs/DEVELOPMENT_JOURNAL.md)** - Development session log
+
+### Quick References
+- **[CLAUDE.md](CLAUDE.md)** - Claude Code project instructions
+- **[AGENTS.md](AGENTS.md)** - General agent instructions quick start
+
+### Documentation Standards
+
+**Architecture Decision Records (ADRs)**:
+- Document significant technical decisions in `docs/decisions/`
+- Use the template at `docs/decisions/TEMPLATE.md`
+- Name files as `NNN-descriptive-title.md`
+- Reference ADR numbers in commits
+
+**Development Journal**:
+- Update `docs/DEVELOPMENT_JOURNAL.md` after each session
+- Include objective, progress, decisions, and deliverables
+- Add entries at the top with current date
+
+**Code Documentation**:
+- JSDoc for public functions
+- Inline comments for complex logic only
+- Reference ADRs in code comments for architectural patterns
+
+See **[docs/README.md](docs/README.md)** for complete documentation standards and best practices.
+
 ## Contributing
 
 1. Work in a feature branch
 2. Follow TDD practices (tests first)
-3. Add decision records for significant architectural changes
-4. Update development journal with progress notes
-5. Create detailed, incremental commits
-6. Submit PR with comprehensive description
+3. **Create ADR** for significant architectural decisions (use `docs/decisions/TEMPLATE.md`)
+4. **Update development journal** (`docs/DEVELOPMENT_JOURNAL.md`) with progress notes
+5. Update relevant documentation (CLAUDE.md, README.md, agent guides)
+6. Create detailed, incremental commits with ADR references
+7. Submit PR with comprehensive description
+
+**Documentation Checklist** before committing:
+- [ ] Created ADR if significant decision was made
+- [ ] Updated CLAUDE.md if architecture changed
+- [ ] Updated README.md if user-facing features added
+- [ ] Added development journal entry for the session
+- [ ] Verified all code examples in docs work
 
 ## License
 
