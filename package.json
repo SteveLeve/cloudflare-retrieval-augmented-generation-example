@@ -5,12 +5,17 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "start": "wrangler dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "db:migrate:local": "wrangler d1 migrations apply ai-example --local",
     "db:migrate:remote": "wrangler d1 migrations apply ai-example"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20251111.0",
+    "@vitest/coverage-v8": "^4.0.10",
     "typescript": "^5.9.3",
+    "vitest": "^4.0.10",
     "wrangler": "^4.46.0"
   },
   "dependencies": {
