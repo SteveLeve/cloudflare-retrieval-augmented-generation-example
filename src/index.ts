@@ -315,7 +315,7 @@ ${contextMessage}`;
 
 		assistantMessage = (response.content as TextBlock[]).map(content => content.text).join("\n");
 	} else {
-		const model = "@cf/meta/llama-3.1-8b-instruct" as any;
+		const model: string = "@cf/meta/llama-3.1-8b-instruct";
 		modelUsed = model;
 
 		const response = await c.env.AI.run(
