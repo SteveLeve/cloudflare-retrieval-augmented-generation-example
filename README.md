@@ -263,6 +263,14 @@ Architecture decisions are documented in `docs/decisions/` following the ADR pat
 5. Create detailed, incremental commits
 6. Submit PR with comprehensive description
 
+## Specification Documents
+
+Formal application and workflow specifications are maintained under `docs/spec/`:
+- `APP_SPEC.md` (core architecture, ingestion, retrieval, security, resilience, regeneration guidance)
+- `CHAT_WORKFLOW_SPEC.md` (multi-turn chat, memory management, summarization, citation validation, rate limiting)
+
+AI agents contributing to this repository must consult these specs before implementing changes. See `agents.md` for agent behavior guidelines.
+
 ## License
 
 MIT
