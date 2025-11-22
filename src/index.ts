@@ -176,7 +176,6 @@ ${contextMessage}`;
 		role: msg.role as 'user' | 'assistant',
 		content: msg.content
 	}));
-	conversationMessages.push({ role: 'user', content: message });
 
 	if (c.env.ANTHROPIC_API_KEY) {
 		const anthropic = new Anthropic({
