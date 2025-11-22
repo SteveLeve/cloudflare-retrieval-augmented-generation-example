@@ -306,10 +306,14 @@ ${contextMessage}`;
 		const model = "claude-3-5-sonnet-latest";
 		modelUsed = model;
 
+		const messagesWithSystem = [
+			{ role: 'system', content: systemPrompt },
+			...conversationMessages
+		];
 		const response = await anthropic.messages.create({
 			max_tokens: 2048,
 			model,
-			messages: conversationMessages,
+			messages: messagesWithSystem,
 			system: systemPrompt
 		});
 
