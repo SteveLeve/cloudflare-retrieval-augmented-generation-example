@@ -53,6 +53,16 @@ type ChatMessage = {
 	sources?: Array<{ id: string; text: string }>;
 }
 
+// Helper function to safely parse JSON sources
+function parseSourcesSafely(sources: string | null): Array<{ id: string; text: string }> | undefined {
+	if (!sources) return undefined;
+	try {
+		return JSON.parse(sources);
+	} catch {
+		return undefined;
+	}
+}
+
 const app = new Hono<{ Bindings: Env }>()
 app.use(cors())
 
@@ -113,13 +123,7 @@ app.get('/chat/conversations/:id', async (c) => {
 	const messages: ChatMessage[] = results.map(msg => ({
 		role: msg.role,
 		content: msg.content,
-		sources: msg.sources ? (() => {
-			try {
-				return JSON.parse(msg.sources);
-			} catch {
-				return undefined;
-			}
-		})() : undefined
+		sources: parseSourcesSafely(msg.sources)
 	}));
 
 	return c.json(messages);
@@ -147,14 +151,14 @@ app.post('/chat/conversations/:id/messages', async (c) => {
 	).bind(userMessageId, conversationId, 'user', message, null).run();
 
 	// Append the new user message to the history array
-	const now = new Date().toISOString();
+	const now = Date.now();
 	history.push({
 		id: userMessageId,
 		conversation_id: conversationId,
 		role: 'user',
 		content: message,
 		sources: null,
-		created_at: now as any
+		created_at: now
 	});
 
 	// Generate embeddings for the user's message
