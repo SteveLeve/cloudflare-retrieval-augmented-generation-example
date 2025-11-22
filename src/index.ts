@@ -52,17 +52,43 @@ type ChatMessage = {
 }
 
 // Helper function to safely parse JSON sources
-function parseSourcesSafely(sources: string | null): Array<{ id: string; text: string }> | undefined {
+function parseSourcesSafely(sources: string | null, logger?: ReturnType<typeof createLogger>): Array<{ id: string; text: string }> | undefined {
 	if (!sources) return undefined;
 	try {
 		return JSON.parse(sources);
-	} catch {
+	} catch (error) {
+		if (logger) {
+			logger.warn('Failed to parse sources JSON', error instanceof Error ? error : new Error(String(error)));
+		}
 		return undefined;
 	}
 }
 
 const app = new Hono<{ Bindings: Env }>()
 app.use(cors())
+
+// Simple rate limiting middleware for chat endpoints
+const chatRateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 30; // 30 requests per minute per IP
+
+app.use('/chat/conversations/:id/messages', async (c, next) => {
+	const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+	const now = Date.now();
+
+	let record = chatRateLimitMap.get(clientIp);
+	if (!record || now > record.resetTime) {
+		record = { count: 0, resetTime: now + RATE_LIMIT_WINDOW };
+		chatRateLimitMap.set(clientIp, record);
+	}
+
+	if (record.count >= RATE_LIMIT_MAX_REQUESTS) {
+		return c.text('Rate limit exceeded. Too many requests.', 429);
+	}
+
+	record.count++;
+	await next();
+})
 
 // Documents endpoints
 app.get('/documents', async (c) => {
@@ -202,23 +228,39 @@ app.get('/chat', async (c) => {
 
 // Create new conversation
 app.post('/chat/conversations', async (c) => {
-	const id = crypto.randomUUID();
-	const query = `INSERT INTO conversations (id) VALUES (?) RETURNING *`;
-	const { results } = await c.env.DATABASE.prepare(query).bind(id).run<Conversation>();
-	if (!results || results.length === 0) return c.text('Failed to create conversation', 500);
-	return c.json(results[0]);
+	const logger = createLogger({ endpoint: 'POST /chat/conversations' });
+	logger.info('Creating new conversation');
+
+	try {
+		const id = crypto.randomUUID();
+		const query = `INSERT INTO conversations (id) VALUES (?) RETURNING *`;
+		const conversation = await c.env.DATABASE.prepare(query).bind(id).first<Conversation>();
+
+		if (!conversation) {
+			logger.error('Failed to create conversation', new Error('Insert returned no result'));
+			return c.text('Failed to create conversation', 500);
+		}
+
+		logger.info('Conversation created successfully', { conversationId: id });
+		return c.json(conversation);
+	} catch (error) {
+		logger.error('Error creating conversation', error instanceof Error ? error : new Error(String(error)));
+		return c.text('Failed to create conversation', 500);
+	}
 })
 
 // Get conversation history
 app.get('/chat/conversations/:id', async (c) => {
 	const { id } = c.req.param();
+	const logger = createLogger({ endpoint: 'GET /chat/conversations/:id', conversationId: id });
+
 	const query = `SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC`;
 	const { results } = await c.env.DATABASE.prepare(query).bind(id).all<Message>();
 
 	const messages: ChatMessage[] = results.map(msg => ({
 		role: msg.role,
 		content: msg.content,
-		sources: parseSourcesSafely(msg.sources)
+		sources: parseSourcesSafely(msg.sources, logger)
 	}));
 
 	return c.json(messages);
@@ -229,32 +271,38 @@ app.post('/chat/conversations/:id/messages', async (c) => {
 	const { id: conversationId } = c.req.param();
 	const { message } = await c.req.json<{ message: string }>();
 
-	if (!message) return c.text("Missing message", 400);
+	// Input validation
+	const MAX_MESSAGE_LENGTH = 10000;
+	if (!message || typeof message !== 'string' || message.trim().length === 0) {
+		return c.text("Message must be a non-empty string", 400);
+	}
+
+	if (message.length > MAX_MESSAGE_LENGTH) {
+		return c.text(`Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters`, 400);
+	}
 
 	// Check if conversation exists
 	const conv = await c.env.DATABASE.prepare('SELECT id FROM conversations WHERE id = ?').bind(conversationId).first();
 	if (!conv) return c.text('Conversation not found', 404);
 
 	// Get conversation history for context (before inserting new message)
-	const historyQuery = `SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC`;
-	const { results: history } = await c.env.DATABASE.prepare(historyQuery).bind(conversationId).all<Message>();
+	// Limit to last 10 messages to prevent unbounded token usage
+	const historyQuery = `SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 10`;
+	const { results: recentHistory } = await c.env.DATABASE.prepare(historyQuery).bind(conversationId).all<Message>();
+	const history = (recentHistory || []).reverse();
 
 	// Save user message
 	const userMessageId = crypto.randomUUID();
-	await c.env.DATABASE.prepare(
-		`INSERT INTO messages (id, conversation_id, role, content, sources) VALUES (?, ?, ?, ?, ?)`
-	).bind(userMessageId, conversationId, 'user', message, null).run();
+	const insertResult = await c.env.DATABASE.prepare(
+		`INSERT INTO messages (id, conversation_id, role, content, sources) VALUES (?, ?, ?, ?, ?) RETURNING *`
+	).bind(userMessageId, conversationId, 'user', message, null).first<Message>();
 
-	// Append the new user message to the history array
-	const now = Math.floor(Date.now() / 1000);
-	history.push({
-		id: userMessageId,
-		conversation_id: conversationId,
-		role: 'user',
-		content: message,
-		sources: null,
-		created_at: now
-	});
+	if (!insertResult) {
+		return c.text('Failed to save user message', 500);
+	}
+
+	// Use the actual inserted message with correct timestamp
+	history.push(insertResult);
 
 	// Generate embeddings for the user's message
 	const embeddings = await c.env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [message] }) as { data: number[][] };
@@ -339,9 +387,13 @@ ${contextMessage}`;
 	const assistantMessageId = crypto.randomUUID();
 	const sources = retrievedNotes.length > 0 ? JSON.stringify(retrievedNotes.map(n => ({ id: n.id, text: n.text }))) : null;
 
-	await c.env.DATABASE.prepare(
-		`INSERT INTO messages (id, conversation_id, role, content, sources) VALUES (?, ?, ?, ?, ?)`
-	).bind(assistantMessageId, conversationId, 'assistant', assistantMessage, sources).run();
+	const assistantInsertResult = await c.env.DATABASE.prepare(
+		`INSERT INTO messages (id, conversation_id, role, content, sources) VALUES (?, ?, ?, ?, ?) RETURNING *`
+	).bind(assistantMessageId, conversationId, 'assistant', assistantMessage, sources).first<Message>();
+
+	if (!assistantInsertResult) {
+		return c.text('Failed to save assistant message', 500);
+	}
 
 	// Return the assistant's response with sources
 	const responseData: ChatMessage = {
