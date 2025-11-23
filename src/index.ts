@@ -58,7 +58,7 @@ function parseSourcesSafely(sources: string | null, logger?: ReturnType<typeof c
 		return JSON.parse(sources);
 	} catch (error) {
 		if (logger) {
-			logger.warn('Failed to parse sources JSON', error instanceof Error ? error : new Error(String(error)));
+			logger.error('Failed to parse sources JSON', error instanceof Error ? error : new Error(String(error)));
 		}
 		return undefined;
 	}
@@ -363,7 +363,7 @@ ${contextMessage}`;
 
 		assistantMessage = (response.content as TextBlock[]).map(content => content.text).join("\n");
 	} else {
-		const model = "@cf/meta/llama-3.1-8b-instruct";
+		const model = "@cf/meta/llama-3.1-8b-instruct" as any;
 		modelUsed = model;
 
 		const response = await c.env.AI.run(
@@ -505,7 +505,7 @@ app.get('/', async (c) => {
 			response: (message.content as TextBlock[]).map(content => content.text).join("\n")
 		}
 	} else {
-		const model = "@cf/meta/llama-3.1-8b-instruct"
+		const model = "@cf/meta/llama-3.1-8b-instruct" as any
 		modelUsed = model
 		logger.debug('Using Workers AI', { model });
 
@@ -654,7 +654,7 @@ export class RAGWorkflow extends WorkflowEntrypoint<Env, Params> {
 					{
 						id: noteRecord.id,
 						values: embedding,
-						metadata: vectorMetadata,
+						metadata: vectorMetadata as Record<string, any>,
 					}
 				]);
 
