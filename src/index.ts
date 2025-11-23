@@ -354,20 +354,16 @@ ${contextMessage}`;
 		const model = "claude-3-5-sonnet-latest";
 		modelUsed = model;
 
-		const messagesWithSystem = [
-			{ role: 'system', content: systemPrompt },
-			...conversationMessages
-		];
 		const response = await anthropic.messages.create({
 			max_tokens: 2048,
 			model,
-			messages: messagesWithSystem,
+			messages: conversationMessages,
 			system: systemPrompt
 		});
 
 		assistantMessage = (response.content as TextBlock[]).map(content => content.text).join("\n");
 	} else {
-		const model: string = "@cf/meta/llama-3.1-8b-instruct";
+		const model = "@cf/meta/llama-3.1-8b-instruct";
 		modelUsed = model;
 
 		const response = await c.env.AI.run(
