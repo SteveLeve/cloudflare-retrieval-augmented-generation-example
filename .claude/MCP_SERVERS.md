@@ -4,7 +4,7 @@ This project includes configuration for Model Context Protocol (MCP) servers tha
 
 ## Configured Servers
 
-### Cloudflare Bindings MCP Server
+### 1. Cloudflare Bindings MCP Server
 
 The Cloudflare Bindings MCP server provides direct integration with your Cloudflare account and Workers bindings, enabling Claude Code to:
 
@@ -37,6 +37,39 @@ The Cloudflare Bindings MCP server provides direct integration with your Cloudfl
 - **Data Analysis**: Analyze conversation patterns or document metadata
 - **Development**: Deploy changes to Workers directly from the IDE
 - **Vector Search**: Test vector index queries and embeddings
+
+---
+
+### 2. Cloudflare Documentation MCP Server
+
+The Cloudflare Documentation MCP server provides semantic search access to Cloudflare's comprehensive documentation database, powered by Vectorize. No authentication required.
+
+#### Capabilities
+
+- **Search Cloudflare Documentation**: Semantic search across the entire Cloudflare docs
+- **Find Best Practices**: Discover recommended approaches for Cloudflare services
+- **Troubleshooting**: Look up solutions and guides for common issues
+- **API Reference**: Access documentation for Workers APIs, D1, Vectorize, KV, and more
+
+#### Setup Instructions
+
+1. **Initial Configuration** (Already Done)
+   - The server is configured in `.claude/settings.json`
+   - Uses the remote MCP server at `https://docs.mcp.cloudflare.com/mcp`
+   - **No authentication required** - works out of the box
+
+2. **Using the Server**
+   - Ask Claude for documentation about any Cloudflare service
+   - Example: "How do I set up D1 migrations?" or "What are the best practices for Cloudflare Workers?"
+   - Claude will search the documentation and provide relevant information
+
+#### Example Use Cases for This Project
+
+- **Learning Cloudflare Services**: Get detailed docs on D1, KV, Vectorize, and Workers
+- **API Development**: Reference Workers API documentation while building
+- **Best Practices**: Follow Cloudflare's recommended patterns for RAG applications
+- **Troubleshooting**: Find solutions to deployment or configuration issues
+- **Performance Optimization**: Learn about caching, indexing, and optimization strategies
 
 ## Configuration Files
 
