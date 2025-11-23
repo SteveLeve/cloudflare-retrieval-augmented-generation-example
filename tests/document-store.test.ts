@@ -14,12 +14,24 @@ class MockKVNamespace implements KVNamespace {
 	private store: Map<string, string> = new Map();
 	private metadata: Map<string, Record<string, any>> = new Map();
 
-	async get(key: string): Promise<string | null> {
-		return this.store.get(key) || null;
+	async get(key: string, type?: any): Promise<string | null> {
+		const value = this.store.get(key);
+		if (!value) return null;
+
+		// Handle JSON type parameter (third overload of KV.get)
+		if (type === 'json') {
+			try {
+				return JSON.parse(value);
+			} catch {
+				return null;
+			}
+		}
+		return value;
 	}
 
-	async put(key: string, value: string, options?: any): Promise<void> {
-		this.store.set(key, value);
+	async put(key: string, value: string | ArrayBuffer, options?: any): Promise<void> {
+		const stringValue = typeof value === 'string' ? value : new TextDecoder().decode(value as ArrayBuffer);
+		this.store.set(key, stringValue);
 		if (options?.metadata) {
 			this.metadata.set(key, options.metadata);
 		}
