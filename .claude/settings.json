@@ -7,6 +7,10 @@
     "cloudflare-docs": {
       "command": "npx",
       "args": ["mcp-remote", "https://docs.mcp.cloudflare.com/mcp"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://api.githubcopilot.com/mcp/"]
     }
   },
   "enableAllProjectMcpServers": true

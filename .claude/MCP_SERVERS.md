@@ -71,6 +71,50 @@ The Cloudflare Documentation MCP server provides semantic search access to Cloud
 - **Troubleshooting**: Find solutions to deployment or configuration issues
 - **Performance Optimization**: Learn about caching, indexing, and optimization strategies
 
+---
+
+### 3. GitHub MCP Server
+
+The GitHub MCP server enables direct integration with GitHub repositories, enabling Claude to interact with your codebase, issues, pull requests, and workflows.
+
+#### Capabilities
+
+- **Repository Management**: List, explore, and analyze repositories
+- **Issue Management**: Create, read, update, and manage issues
+- **Pull Requests**: Create, review, and manage pull requests
+- **Code Search**: Search for code across your repositories
+- **Workflow Management**: Manage GitHub Actions workflows
+- **User & Organization Management**: Access user and org information
+- **Code Security**: Review security alerts and advisories
+
+#### Setup Instructions
+
+1. **Initial Configuration** (Already Done)
+   - The server is configured in `.claude/settings.json`
+   - Uses the remote GitHub Copilot API endpoint with OAuth
+   - URL: `https://api.githubcopilot.com/mcp/`
+
+2. **Authentication**
+   - OAuth authentication with GitHub account
+   - Browser window opens automatically on first use
+   - Grant permissions for accessing repositories and issues
+   - Can configure scoped permissions (repo, read:org, read:packages, etc.)
+
+3. **Using the Server**
+   - Ask Claude to explore your repository
+   - Have Claude help with issue/PR management
+   - Get code suggestions and analysis
+   - Example: "Show me recent issues in this repo" or "Create a pull request for this change"
+
+#### Example Use Cases for This Project
+
+- **Code Review**: Ask Claude to review and analyze the codebase
+- **Issue Management**: Create issues for bugs and features
+- **PR Reviews**: Get Claude to review pull requests
+- **Documentation**: Extract documentation from the repository
+- **Commit Analysis**: Understand commit history and patterns
+- **Workflow Management**: Trigger and monitor GitHub Actions
+
 ## Configuration Files
 
 - **`.claude/settings.json`** - Shared project configuration (tracked in git)
