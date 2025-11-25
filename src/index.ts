@@ -13,7 +13,7 @@ import ui from './ui.html'
 // @ts-expect-error
 import write from './write.html'
 // @ts-expect-error
-import documents from './documents.html'
+import chat from './chat.html'
 
 import { Env, NoteRecord, VectorMetadata, CreateDocumentInput } from './types';
 import { createLogger } from './utils/logger';
@@ -31,8 +31,64 @@ type Params = {
 	metadata?: Record<string, unknown>;
 };
 
+type Conversation = {
+	id: string;
+	created_at: number;
+}
+
+type Message = {
+	id: string;
+	conversation_id: string;
+	role: 'user' | 'assistant';
+	content: string;
+	sources: string | null;
+	created_at: number;
+}
+
+type ChatMessage = {
+	role: 'user' | 'assistant';
+	content: string;
+	sources?: Array<{ id: string; text: string }>;
+}
+
+// Helper function to safely parse JSON sources
+function parseSourcesSafely(sources: string | null, logger?: ReturnType<typeof createLogger>): Array<{ id: string; text: string }> | undefined {
+	if (!sources) return undefined;
+	try {
+		return JSON.parse(sources);
+	} catch (error) {
+		if (logger) {
+			logger.error('Failed to parse sources JSON', error instanceof Error ? error : new Error(String(error)));
+		}
+		return undefined;
+	}
+}
+
 const app = new Hono<{ Bindings: Env }>()
 app.use(cors())
+
+// Simple rate limiting middleware for chat endpoints
+const chatRateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 30; // 30 requests per minute per IP
+
+app.use('/chat/conversations/:id/messages', async (c, next) => {
+	const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+	const now = Date.now();
+
+	let record = chatRateLimitMap.get(clientIp);
+	if (!record || now > record.resetTime) {
+		record = { count: 0, resetTime: now + RATE_LIMIT_WINDOW };
+		chatRateLimitMap.set(clientIp, record);
+	}
+
+	if (record.count >= RATE_LIMIT_MAX_REQUESTS) {
+		return c.text('Rate limit exceeded. Too many requests.', 429);
+	}
+
+	record.count++;
+	await next();
+})
 
 // Documents endpoints
 app.get('/documents', async (c) => {
@@ -165,8 +221,185 @@ app.get('/write', async (c) => {
 	return c.html(write);
 })
 
-app.get('/documents/ui', async (c) => {
-	return c.html(documents);
+// Chat UI
+app.get('/chat', async (c) => {
+	return c.html(chat);
+})
+
+// Create new conversation
+app.post('/chat/conversations', async (c) => {
+	const logger = createLogger({ endpoint: 'POST /chat/conversations' });
+	logger.info('Creating new conversation');
+
+	try {
+		const id = crypto.randomUUID();
+		const query = `INSERT INTO conversations (id) VALUES (?) RETURNING *`;
+		const conversation = await c.env.DATABASE.prepare(query).bind(id).first<Conversation>();
+
+		if (!conversation) {
+			logger.error('Failed to create conversation', new Error('Insert returned no result'));
+			return c.text('Failed to create conversation', 500);
+		}
+
+		logger.info('Conversation created successfully', { conversationId: id });
+		return c.json(conversation);
+	} catch (error) {
+		logger.error('Error creating conversation', error instanceof Error ? error : new Error(String(error)));
+		return c.text('Failed to create conversation', 500);
+	}
+})
+
+// Get conversation history
+app.get('/chat/conversations/:id', async (c) => {
+	const { id } = c.req.param();
+	const logger = createLogger({ endpoint: 'GET /chat/conversations/:id', conversationId: id });
+
+	const query = `SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC`;
+	const { results } = await c.env.DATABASE.prepare(query).bind(id).all<Message>();
+
+	const messages: ChatMessage[] = results.map(msg => ({
+		role: msg.role,
+		content: msg.content,
+		sources: parseSourcesSafely(msg.sources, logger)
+	}));
+
+	return c.json(messages);
+})
+
+// Send message and get response
+app.post('/chat/conversations/:id/messages', async (c) => {
+	const { id: conversationId } = c.req.param();
+	const { message } = await c.req.json<{ message: string }>();
+
+	// Input validation
+	const MAX_MESSAGE_LENGTH = 10000;
+	if (!message || typeof message !== 'string' || message.trim().length === 0) {
+		return c.text("Message must be a non-empty string", 400);
+	}
+
+	if (message.length > MAX_MESSAGE_LENGTH) {
+		return c.text(`Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters`, 400);
+	}
+
+	// Check if conversation exists
+	const conv = await c.env.DATABASE.prepare('SELECT id FROM conversations WHERE id = ?').bind(conversationId).first();
+	if (!conv) return c.text('Conversation not found', 404);
+
+	// Get conversation history for context (before inserting new message)
+	// Limit to last 10 messages to prevent unbounded token usage
+	const historyQuery = `SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 10`;
+	const { results: recentHistory } = await c.env.DATABASE.prepare(historyQuery).bind(conversationId).all<Message>();
+	const history = (recentHistory || []).reverse();
+
+	// Save user message
+	const userMessageId = crypto.randomUUID();
+	const insertResult = await c.env.DATABASE.prepare(
+		`INSERT INTO messages (id, conversation_id, role, content, sources) VALUES (?, ?, ?, ?, ?) RETURNING *`
+	).bind(userMessageId, conversationId, 'user', message, null).first<Message>();
+
+	if (!insertResult) {
+		return c.text('Failed to save user message', 500);
+	}
+
+	// Use the actual inserted message with correct timestamp
+	history.push(insertResult);
+
+	// Generate embeddings for the user's message
+	const embeddings = await c.env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [message] }) as { data: number[][] };
+	const vectors = embeddings.data[0];
+
+	// Query vector index for relevant notes
+	const vectorQuery = await c.env.VECTOR_INDEX.query(vectors, { topK: 3 });
+	const matchingIds = vectorQuery.matches.map(m => m.id).filter(Boolean);
+
+	let retrievedNotes: Note[] = [];
+	if (matchingIds.length > 0) {
+		const placeholders = matchingIds.map(() => '?').join(',');
+		const query = `SELECT * FROM notes WHERE id IN (${placeholders})`;
+		const { results } = await c.env.DATABASE.prepare(query).bind(...matchingIds).all<Note>();
+		retrievedNotes = results || [];
+	}
+
+	// Build context from retrieved notes
+	const contextMessage = retrievedNotes.length
+		? `Retrieved Documents:\n${retrievedNotes.map((note, idx) => `[${idx + 1}] (ID: ${note.id})\n${note.text}`).join("\n\n")}`
+		: "No relevant documents found in the knowledge base.";
+
+	// System prompt for document-constrained responses
+	const systemPrompt = `You are a helpful AI assistant that answers questions based ONLY on the information provided in the retrieved documents.
+
+IMPORTANT RULES:
+1. You must ONLY use information from the "Retrieved Documents" section provided below
+2. If no relevant documents are found, or if the documents don't contain information to answer the question, you MUST say "I don't have enough information in the knowledge base to answer that question."
+3. When you use information from a document, you MUST cite it by including the document ID in your response like this: [ID: <document-id>]
+4. Do NOT use any external knowledge or make assumptions beyond what's in the retrieved documents
+5. Be concise and factual in your responses
+
+${contextMessage}`;
+
+	let modelUsed: string = "";
+	let assistantMessage: string = "";
+
+	// Build conversation messages for the AI
+	const conversationMessages = history.map(msg => ({
+		role: msg.role as 'user' | 'assistant',
+		content: msg.content
+	}));
+
+	if (c.env.ANTHROPIC_API_KEY) {
+		const anthropic = new Anthropic({
+			apiKey: c.env.ANTHROPIC_API_KEY
+		});
+
+		const model = "claude-3-5-sonnet-latest";
+		modelUsed = model;
+
+		const response = await anthropic.messages.create({
+			max_tokens: 2048,
+			model,
+			messages: conversationMessages,
+			system: systemPrompt
+		});
+
+		assistantMessage = (response.content as TextBlock[]).map(content => content.text).join("\n");
+	} else {
+		const model = "@cf/meta/llama-3.1-8b-instruct" as any;
+		modelUsed = model;
+
+		const response = await c.env.AI.run(
+			model,
+			{
+				messages: [
+					{ role: 'system', content: systemPrompt },
+					...conversationMessages
+				]
+			}
+		) as AiTextGenerationOutput;
+
+		assistantMessage = response.response || "Unable to generate response";
+	}
+
+	// Save assistant message with sources
+	const assistantMessageId = crypto.randomUUID();
+	const sources = retrievedNotes.length > 0 ? JSON.stringify(retrievedNotes.map(n => ({ id: n.id, text: n.text }))) : null;
+
+	const assistantInsertResult = await c.env.DATABASE.prepare(
+		`INSERT INTO messages (id, conversation_id, role, content, sources) VALUES (?, ?, ?, ?, ?) RETURNING *`
+	).bind(assistantMessageId, conversationId, 'assistant', assistantMessage, sources).first<Message>();
+
+	if (!assistantInsertResult) {
+		return c.text('Failed to save assistant message', 500);
+	}
+
+	// Return the assistant's response with sources
+	const responseData: ChatMessage = {
+		role: 'assistant',
+		content: assistantMessage,
+		sources: retrievedNotes.length > 0 ? retrievedNotes.map(n => ({ id: n.id, text: n.text })) : undefined
+	};
+
+	c.header('x-model-used', modelUsed);
+	return c.json(responseData);
 })
 
 app.get('/', async (c) => {
@@ -272,7 +505,7 @@ app.get('/', async (c) => {
 			response: (message.content as TextBlock[]).map(content => content.text).join("\n")
 		}
 	} else {
-		const model = "@cf/meta/llama-3.1-8b-instruct"
+		const model = "@cf/meta/llama-3.1-8b-instruct" as any
 		modelUsed = model
 		logger.debug('Using Workers AI', { model });
 
@@ -421,7 +654,7 @@ export class RAGWorkflow extends WorkflowEntrypoint<Env, Params> {
 					{
 						id: noteRecord.id,
 						values: embedding,
-						metadata: vectorMetadata,
+						metadata: vectorMetadata as Record<string, any>,
 					}
 				]);
 

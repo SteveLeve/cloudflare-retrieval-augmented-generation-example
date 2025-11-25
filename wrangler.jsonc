@@ -41,7 +41,7 @@
   "vectorize": [
     {
       "binding": "VECTOR_INDEX",
-      "index_name": "tutorial-index-768",
+      "index_name": "tutorial-index-768", 
       "remote": true
     }
   ],

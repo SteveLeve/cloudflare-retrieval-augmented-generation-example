@@ -2,7 +2,7 @@
  * Unit tests for Logger utility
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Logger, createLogger } from '../src/utils/logger';
 
 describe('Logger', () => {
@@ -17,6 +17,11 @@ describe('Logger', () => {
 		consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
 		consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 		consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+	});
+
+	afterEach(() => {
+		// Clear spies after each test
+		vi.clearAllMocks();
 	});
 
 	it('should create a logger with context', () => {
@@ -73,6 +78,7 @@ describe('Logger', () => {
 
 		childLogger.info('Test message');
 
+		expect(consoleInfoSpy).toHaveBeenCalledOnce();
 		const logOutput = consoleInfoSpy.mock.calls[0][0];
 		expect(logOutput).toContain('parent');
 		expect(logOutput).toContain('child');
