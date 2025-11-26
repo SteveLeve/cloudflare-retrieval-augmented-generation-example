@@ -31,7 +31,12 @@ This project is a serverless Retrieval Augmented Generation (RAG) application bu
     - IP-based rate limiting.
     - Input sanitization and validation.
 
-### 3. Agentic Engineering & CI/CD
+### 3. Data Management
+- **Full System Reset**:
+    - "Clear All" feature to wipe all documents, vectors, and conversation history.
+    - Useful for development and testing cycles.
+
+### 4. Agentic Engineering & CI/CD
 - **AI-Assisted Development**:
     - **Claude Code Integration**: Integrated workflows for AI-driven code reviews and pull request assistance.
     - **MCP (Model Context Protocol)**: Ready for integration with agentic IDEs and tools.

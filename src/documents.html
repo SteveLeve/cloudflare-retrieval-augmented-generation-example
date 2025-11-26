@@ -49,6 +49,9 @@
     <small>
       <a href="/ui">Query</a> ・ <a href="/notes">Notes</a> ・ <a href="/documents">Documents</a> ・ <a href="/write">Add document</a>
     </small>
+    <button onclick="clearAllData()"
+        style="float: right; background-color: #ff4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">Clear
+        All Data</button>
   </p>
 
   <div id="documentList">
@@ -280,6 +283,31 @@
 
     // Load documents on page load
     loadDocuments();
+
+    async function clearAllData() {
+        if (!confirm('Are you sure you want to delete ALL documents, notes, and chat history? This cannot be undone.')) {
+            return;
+        }
+
+        const button = document.querySelector('button[onclick="clearAllData()"]');
+        const originalText = button.textContent;
+        button.textContent = 'Clearing...';
+        button.disabled = true;
+
+        try {
+            const response = await fetch('/api/clear-all', { method: 'DELETE' });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            // Reload to show empty state
+            window.location.reload();
+        } catch (error) {
+            alert('Failed to clear data: ' + error.message);
+            button.textContent = originalText;
+            button.disabled = false;
+        }
+    }
   </script>
 </body>
 

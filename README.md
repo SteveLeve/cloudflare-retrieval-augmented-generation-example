@@ -101,6 +101,7 @@ After deploying, you can use the following routes:
 - `GET /notes` - Web UI showing all note chunks (legacy view)
 - `GET /notes.json` - JSON endpoint returning all note chunks
 - `DELETE /notes/:id` - Delete a specific note chunk
+- `DELETE /api/clear-all` - Delete ALL data (documents, notes, vectors, chat history)
 
 ### API Example
 

@@ -149,6 +149,51 @@ app.delete('/notes/:id', async (c) => {
 	return c.redirect('/notes')
 })
 
+app.delete('/api/clear-all', async (c) => {
+    const logger = createLogger({ endpoint: 'DELETE /api/clear-all' });
+    logger.info('Received request to clear all data');
+
+    try {
+        // 1. Fetch all note IDs to delete from vector index
+        // We need to do this in batches if there are many notes, but for now we'll try to get all
+        // Vectorize deleteByIds might have limits, so chunking is safer
+        const notesQuery = `SELECT id FROM notes`;
+        const { results: notes } = await c.env.DATABASE.prepare(notesQuery).all<{ id: string }>();
+
+        if (notes && notes.length > 0) {
+            const noteIds = notes.map(n => n.id);
+            logger.info('Deleting vectors', { count: noteIds.length });
+
+            // Delete in batches of 1000 to be safe
+            const BATCH_SIZE = 1000;
+            for (let i = 0; i < noteIds.length; i += BATCH_SIZE) {
+                const batch = noteIds.slice(i, i + BATCH_SIZE);
+                await c.env.VECTOR_INDEX.deleteByIds(batch);
+            }
+        }
+
+        // 2. Delete all data from SQL tables
+        // Order matters due to foreign key constraints (though ON DELETE CASCADE helps)
+        // Deleting from documents should cascade to notes
+        // Deleting from conversations should cascade to messages
+
+        const batch = [
+            c.env.DATABASE.prepare('DELETE FROM messages'),
+            c.env.DATABASE.prepare('DELETE FROM conversations'),
+            c.env.DATABASE.prepare('DELETE FROM notes'), // Explicitly delete notes just in case
+            c.env.DATABASE.prepare('DELETE FROM documents'),
+        ];
+
+        await c.env.DATABASE.batch(batch);
+
+        logger.info('All data cleared successfully');
+        return c.json({ message: 'All data cleared successfully' });
+    } catch (error) {
+        logger.error('Failed to clear data', error instanceof Error ? error : new Error(String(error)));
+        return c.json({ error: 'Failed to clear data' }, 500);
+    }
+})
+
 app.post('/notes', async (c) => {
 	const logger = createLogger({ endpoint: 'POST /notes' });
 	logger.info('Received note creation request');
