@@ -32,7 +32,7 @@ Generate a new database, vector index, and KV namespace:
 $ wrangler d1 create DATABASE
 
 # Create Vectorize index
-$ wrangler vectorize:index create VECTOR_INDEX --preset "@cf/baai/bge-base-en-v1.5"
+$ wrangler vectorize create vector-index --preset "@cf/baai/bge-base-en-v1.5"
 
 # Create KV namespace for document storage
 $ wrangler kv:namespace create DOCUMENTS
